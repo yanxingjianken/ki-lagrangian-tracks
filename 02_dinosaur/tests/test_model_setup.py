@@ -61,22 +61,24 @@ def test_projection_keeps_wavenumber_m_symmetric(m):
 
 def test_flow_set():
     flows = json.loads((ROOT / "configs" / "flows.json").read_text())
-    fresh = FLOWS.draw_flows()
+    fresh = [f for f in FLOWS.draw_flows() if f["name"] not in FLOWS.REMOVED]
     assert [f["name"] for f in flows] == [f["name"] for f in fresh]
-    assert len({f["name"] for f in flows}) == 56
+    assert len({f["name"] for f in flows}) == 52
     train = [f for f in flows if f["split"] == "train"]
     test = [f for f in flows if f["split"] == "test"]
-    assert len(train) == 48 and len(test) == 8
+    assert len(train) == 46 and len(test) == 6
     typ = lambda f: f["basic"].split("_")[0]
+    drawn = [f for f in FLOWS.draw_flows() if f["split"] == "train"]
     for key, levels in (("ujet", FLOWS.UJETS), ("m", FLOWS.MS), ("amp", FLOWS.AMPS)):
+        assert all(Counter(f[key] for f in drawn)[lv] >= 5 for lv in levels), key
         c = Counter(f[key] for f in train)
-        assert all(c[lv] >= 5 for lv in levels), (key, c)
+        assert all(c[lv] >= 4 for lv in levels), (key, c)
     assert all(Counter(typ(f) for f in train)[t] >= 5 for t in FLOWS.TYPES)
     inside = [f for f in test if f["label"].startswith("new combination")]
     seen = {(f["ujet"], typ(f), f["m"]) for f in train}
     assert len(inside) == 4 and all((f["ujet"], typ(f), f["m"]) not in seen and f["amp"] == 1.0 for f in inside)
     assert {(typ(f), f["ujet"], f["m"]) for f in test if f not in inside} == {
-        ("lc1", 30.0, 6), ("lc2lobes", 65.0, 5), ("lc2polarcap", 45.0, 9), ("lc1", 65.0, 3)}
+        ("lc1", 30.0, 6), ("lc2polarcap", 45.0, 9)}
     for f in flows:
         assert {"name", "case", "z2", "ujet", "m", "amp", "split", "label", "status"} <= set(f)
         assert (f["case"], f["z2"]) == FLOWS.CASE[typ(f)]

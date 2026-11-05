@@ -26,6 +26,10 @@ OUTSIDE = [("lc1", 30, 6, "jet 30 m/s"), ("lc2lobes", 65, 5, "jet 65 m/s"), ("lc
 N_TRAIN, MIN_COUNT, N_HELD = 48, 5, 4
 
 
+REMOVED = {"t46_lc2polarcap_u60_m4_a05", "t47_lc2polarcap_u60_m5_a05", "o6_lc2lobes_u65_m5_a1", "o8_lc1_u65_m3_a1"}
+# Drawn but removed: their basic states are statically unstable and the integrations fail in the first hour.
+
+
 def amp_tag(amp: float) -> str:
     return {0.5: "05", 1.0: "1", 2.0: "2"}[amp]
 
@@ -84,7 +88,7 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=ROOT / "configs" / "flows.json")
     ap.add_argument("--update", action="store_true")
     a = ap.parse_args()
-    flows = draw_flows()
+    flows = [f for f in draw_flows() if f["name"] not in REMOVED]
     if a.update:
         update(flows)
     a.out.parent.mkdir(parents=True, exist_ok=True)

@@ -63,7 +63,7 @@ and 0.241 within about 20° of the equator (dθ/dln p from +3.1 K at 47 m/s to �
 building the temperature from thermal-wind balance for a scaled-up jet. For four flows the power iteration then
 converges to a fast equatorial mode and the integration fails in the first hour at any time step tried (600, 300,
 150 s): two training flows (LC2 polar cap, 60 m/s, m 4 and 5) and two unseen ones (LC2 lobes 65 m/s m5; LC1 65 m/s
-m3). They are not used. The other strong-jet flows (22 training, 2 unseen) ran normally in mid-latitudes (tropical
+m3). They were removed (`REMOVED` in `scripts/00_flows.py`); `configs/flows.json` lists the 52 flows used. The other strong-jet flows (22 training, 2 unseen) ran normally in mid-latitudes (tropical
 upper-level wind below 21 m/s through day 15; the patches start at 30–65°N). Six wavenumber-4 modes did not converge
 in 40 iterations, and one flow (LC2 polar cap, 35 m/s, m 4, amplitude 0.5) hardly develops.
 
