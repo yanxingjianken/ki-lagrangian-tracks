@@ -1,0 +1,8 @@
+# Model output and run logs stay out of git; small configs, check files, scripts and figures are versioned.
+data/*.nc
+data/*.npz
+data/*.part
+data/lagranto/
+logs/
+outputs/
+data/scratch_runs/

@@ -1,0 +1,11 @@
+{
+ "status": "blew up hour 1 at dt 600/300/150 s: mode is an equatorial instability",
+ "flow": "o6_lc2lobes_u65_m5_a1",
+ "dt_s": 150.0,
+ "dt_tried_s": [
+  600.0,
+  300.0,
+  150.0
+ ],
+ "cause": "basic state statically unstable at sigma 0.197-0.241 within 20 deg of the equator; the power iteration converged to a stationary equatorial upper-tropospheric mode with ~1e4 m/s per 1 hPa surface pressure"
+}

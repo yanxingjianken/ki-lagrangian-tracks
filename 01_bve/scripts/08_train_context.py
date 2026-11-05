@@ -85,7 +85,7 @@ def validate(m):
     return fc, bc, path
 
 
-hist = dict(step=[], train=[], val_step=[], val_loss=[], val_infill_km=[], forecast_km=[], backcast_km=[],
+hist = dict(step=[], train=[], val_step=[], val_km=[], forecast_km=[], backcast_km=[],
             world_size=world, flows=names)
 best = np.inf
 for step in range(1, a.steps + 1):
@@ -114,8 +114,7 @@ for step in range(1, a.steps + 1):
     fc, bc, path = validate(ema)
     score_km = 0.5 * (fc + bc)
     hist["val_step"].append(step)
-    hist["val_loss"].append(float(loss))
-    hist["val_infill_km"].append(score_km)
+    hist["val_km"].append(score_km)
     hist["forecast_km"].append(fc)
     hist["backcast_km"].append(bc)
     out, logs = ROOT / "outputs/models", ROOT / "outputs/logs"

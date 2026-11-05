@@ -14,10 +14,9 @@ def loss_png(path, hist, name, val_label="validation error (km)"):
     k = min(200, len(tr))
     ax[0].semilogy(hist["step"], tr, color="0.8", lw=0.5, label="train (each step)")
     ax[0].semilogy(hist["step"][k - 1:], np.convolve(tr, np.ones(k) / k, "valid"), color="k", label=f"train ({k}-step mean)")
-    ax[0].semilogy(hist["val_step"], hist["val_loss"], "o-", color="tab:red", ms=3, label="validation parcels")
     ax[0].set(xlabel="step", ylabel="loss (acceleration + score MSE)")
     ax[0].legend(fontsize=7, frameon=False)
-    ax[1].plot(hist["val_step"], hist["val_infill_km"], "o-", color="tab:red", ms=3, label="validation")
+    ax[1].plot(hist["val_step"], hist.get("val_km", hist.get("val_infill_km")), "o-", color="tab:red", ms=3, label="validation")
     for key, color in (("forecast_km", "tab:purple"), ("backcast_km", "tab:green")):
         if hist.get(key):
             ax[1].plot(hist["val_step"], hist[key], ".--", color=color, ms=3, label=key.split("_")[0])
