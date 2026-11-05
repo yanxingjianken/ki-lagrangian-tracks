@@ -1,0 +1,140 @@
+1. Code retrieval
+------------------
+
+Download the latest Lagranto version from SVN repository <https://svn.iac.ethz.ch/websvn/pub/wsvn/>.
+
+Then create a directory where you want Lagranto to be installed; place the whole source code in this
+directory and set an environment variable {LAGRANTO} pointing to this directory.
+
+> setenv LAGRANTO {PATH TO YOUR LAGRANTO INSTALLATION}
+
+2. Compiling the Lagranto code
+-------------------------------
+
+First you will have to adapt some parameters in the installation script <install.csh>. 
+
+2.1 Set paths for development and for operational version of Lagranto (might be the same). For our system,
+we have a environment variable {DYN_TOOLS} (e.g., /usr/local/) that provides the paths to several tools.
+For your system, just provide the path to Lagranto (e.g., path_devel = /home/{user}/lagranto.ecmwf).
+set path_devel = "${DYN_TOOLS}//lagranto.ecmwf/"
+set path_sync  = "${DYN_TOOLS}/lagranto/"
+
+2.2 Set the Fortran compiler to your version (e.g., gfortran, pgf90, ifort,...)
+setenv FORTRAN pgf90 
+
+2.3 Set netcdf format of the ECMWF files (typically cdo)
+set ncdf = cdo
+
+2.4 Set the paths to the netCDF library. At our system, this is done by means of modules, but certainly 
+at your site you will have to change this. You system administrator will be able to help you with that!
+Just to give you an idea what <module load netcdf/4.3.2) does, here is the detailed list of commands 
+run by the call:
+
+module-whatis    set environment for netcdf 4.3.2 and netcdf-fortran 4.2 compiled with gfortran and hdf5 1.8.13 
+module           load hdf5/1.8.13 
+setenv           NETCDF /usr/local/netcdf-4.3.2-4.2-gfortran 
+prepend-path     PATH /usr/local/netcdf-4.3.2-4.2-gfortran/bin 
+prepend-path     INCLUDE /usr/local/netcdf-4.3.2-4.2-gfortran/include 
+prepend-path     C_INCLUDE_PATH /usr/local/netcdf-4.3.2-4.2-gfortran/include 
+prepend-path     CPLUS_INCLUDE_PATH /usr/local/netcdf-4.3.2-4.2-gfortran/include 
+prepend-path     LIBRARY_PATH /usr/local/netcdf-4.3.2-4.2-gfortran/lib64 
+prepend-path     LD_LIBRARY_PATH /usr/local/netcdf-4.3.2-4.2-gfortran/lib64 
+prepend-path     MANPATH /usr/local/netcdf-4.3.2-4.2-gfortran/share/man 
+
+2.4 Possibly you will have to replace <nc-config> with <nf-config> in your setting. If the netCDF environment 
+is correctly set up, entering either <nc-config> or <nf-config> in the command shell sould give some result:
+
+setenv NETCDF_LIB `nc-config --flibs`
+setenv NETCDF_INC `nc-config --fflags`
+
+2.5 If the previous steps have been done, you are ready to install Lagranto. I suggest to do it stepwise (as
+listed below). If everything works fine, you can compile it in one single step by <install.csh all>.
+
+> cd ${LAGRANTO}/
+> ./install.csh clean
+> ./install.csh lib
+> ./install.csh create_startf
+> ./install.csh caltra
+> ./install.csh trace
+> ./install.csh select
+> ./install.csh density
+> ./install.csh lidar
+> ./install.csh goodies
+> ./install.csh docu
+> ./install.csh links
+
+Add the end of the installation, it's best to add the following directory to your PATH variable. In <bash> 
+this should look like
+
+>  export PATH=${LAGRANTO}/bin/:$PATH
+
+If the <LAGRANTO/bin> directory is in your PATH, then you will be able to run Lagranto from any directory. 
+Otherwise, you will always to give the full path to your Lagranto commands, e.g.
+
+> ${LAGRANTO}/bin/caltra
+
+3. Lagranto documentation
+-------------------------
+
+Lagranto comes with a detailed documentation; you can start it with one of the following calls:
+
+> lagrantohelp
+> lagrantohelp tutorial
+> lagrantohelp reference
+
+The most important program for you will be <caltra> which calculates the trajectories...
+
+> lagrantohelp caltra
+
+4. Test data set
+-----------------
+
+On our FTP server you find a sample data set which allows you to run Lagranto without bothering about the
+Grib-netCDF conversion.
+
+ftp://iacftp.ethz.ch/pub_read/sprenger/lagranto.ecmwf.test/
+
+There are two versions of test data available, depending on the netCDF version you would like to use. 
+
+- ive: the netCDF format used at ETH, converted with Fortran program <fgrb2cdf_api>
+- cdo: CF-conform netCDF format; the GRIB files and the conversion script are also included in the folder
+
+If you don't know which version to use, I suggest to choose 'cdo' because here the conversion from GRIB to 
+netCDF format can be done by means of the CDO tools (as done in <convert.sh>).
+
+5. Minimal test run
+--------------------
+
+a) Define a starting position in a file <startf>; the format is <longitude latitude pressure>.
+
+> more startf
+  8.0 46.0 500.
+-10.0 30.0 850.
+
+Each line corresponds to a single starting position. Note that longitudes must be within -180 ... +180 deg.
+
+
+b) Start the trajectory
+
+It is a forward trajectory starting at 00 UTC 1 Jan 2012. The time span is 18 UTC. Starting positions are
+taken from <startf>, the output is written to <trajectory>. For details about the optional flag <-j> and
+<-notimecheck>, please consult the Lagranto help <lagrantohelp caltra>.
+
+> caltra 20120101_00 20120101_18 startf trajectory -j
+> more trajectory
+Reference date 20120101_0000 / Time range    1080 min
+
+  time      lon     lat     p
+-----------------------------
+
+    .00     8.00   46.00   500
+   6.00    10.02   44.07   480
+  12.00    11.64   42.13   504
+  18.00    12.66   40.17   514
+
+    .00   -10.00   30.00   850
+   6.00   -10.42   30.14   866
+  12.00   -10.40   30.25   885
+  18.00   -10.46   29.93   906
+
+================================. 
