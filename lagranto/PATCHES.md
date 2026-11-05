@@ -21,6 +21,9 @@ Not edited (left as known upstream issues, see README "Gotchas"):
   Measured in README "3-D: parcels near the ground".
 - `docu/man/caltra.0` says that without `-j` a ground-touching trajectory "would stick at the same position". The
   code (`caltra.f` line 1092) flags it as leaving the domain: its positions are -999 for the rest of the run.
+- `lib/ioinp_ive.f` (3-D input): when every `bklev`/`bklay` is below 0.001 the reader skips PS and sets it to 1000 hPa,
+  so pure pressure-level files carry no topography; `lagranto_io.write_pfile_plev` sets bk = 0.002 on the bottom level
+  (README "3-D trajectories from pressure levels").
 - `caltra.sh -p` writes `per = 1` (degree) into `caltra.param`; on a global grid that wraps longitudes modulo 1 deg.
 - `trace.f90` line 1762: `calc_DTDY` is called with one argument too many (only matters when tracing `DTHDY`).
 - `trace` ends with Fortran `stop` (exit status 0) on its input errors, so `trace.sh` reports success; check that the

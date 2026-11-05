@@ -11,7 +11,7 @@ run on winds of models of increasing realism, with Rossby-wave breaking in mind.
 | --- | --- | --- |
 | [`01_bve/`](01_bve/) | 2-D tracks in 13 stochastically stirred barotropic jets on the sphere (torch-harmonics) | done |
 | [`02_dinosaur/`](02_dinosaur/) | 3-D tracks in 52 baroclinic life cycles of the JAX dynamical core Dinosaur | done |
-| [`03_era5/`](03_era5/) | tracks in ERA5 | on hold |
+| [`03_era5/`](03_era5/) | 3-D tracks in ERA5 (0.25°, 37 pressure levels, both hemispheres; 2015–2017 training, 2021 test) | tracks in production |
 | [`lagranto/`](lagranto/) | LAGRANTO.ecmwf source (ETH public SVN, revision 47, GPLv3) with a gfortran build script and Python I/O | built |
 | `ki/` | upstream KI code (git submodule, github.com/Submobile01/KinematicInterpolant, MIT) | reference |
 

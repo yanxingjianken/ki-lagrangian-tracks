@@ -245,6 +245,28 @@ horizontal error great-circle km.
   (`LAGRANTO_TEST_DIR=<scratch> micromamba run -n isca python -m pytest -q tests/test_lagranto_3d.py`, 35 s,
   1.3 GB of P files, removed afterwards).
 
+## 3-D trajectories from pressure levels
+
+`python/lagranto_io.py:write_pfile_plev(outdir, time, lon, lat, plev_hpa, u, v, omega, ps, t=None)` writes one P
+file per time from pressure-level data (ERA5's 37 levels in `03_era5`). caltra builds the pressure of level k as
+ak(k) + bk(k) PS, and `lib/ioinp_ive.f` reads PS only if some bk exceeds 0.001: with pure pressure levels
+(ak = p, every bk = 0) it sets the surface pressure to 1000 hPa everywhere, so parcels can sink below high terrain
+and `-j` never lifts them. The writer therefore gives the bottom level bk = 0.002 and ak = p - 2 hPa, which moves
+that level by 0.002 (PS - 1000 hPa) (under 1 hPa) and makes caltra read PS. Levels may come in either order and
+are written bottom first; latitudes S->N; a global longitude axis is closed at lon[0] + 360. Files appear under
+their final name only when complete (written as `<name>.part`, then renamed), so a run can read a directory that is
+still being filled.
+
+`tests/test_lagranto_plev.py`: winds u = 10 m/s, OMEGA = 0.5 Pa/s (descent 18 hPa/h), PS 1000 hPa with a
+600-hPa plateau; parcels start at 560 hPa. With `write_pfile_plev` and `-j` the plateau parcels stay above 600 hPa
+and the lowland parcels descend to 668 hPa as expected; the same files with every bk = 0 let the plateau parcels
+sink to about 668 hPa as well.
+
+Speed on ERA5 (0.25 deg, 1441 x 721 x 37, hourly, `-t 1 -o 10 -j`): 163 840 parcels advance 3 h in 100 s; the
+order of the parcels in the start file matters (20 480 parcels grouped by patch 15 s, 20 000 in random order 33 s:
+neighbouring parcels read neighbouring grid points); about 1.4 GB of memory per run. caltra writes `caltra.param`
+into its working directory, so concurrent runs need separate directories (links to the P files are enough).
+
 ## Gotchas
 
 - Run caltra and trace inside the directory with the P files (or symlinks to them). `caltra.param`,

@@ -1,0 +1,4 @@
+# Winds, tracks, run logs and model output stay out of git; configs, scripts, small figures and docs are versioned.
+data/
+outputs/
+logs/

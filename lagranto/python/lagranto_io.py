@@ -6,6 +6,7 @@ P files follow the IVE netCDF layout read by lib/ioinp_ive.f (the reader built b
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -89,7 +90,9 @@ def _write_pfile(path: Path, hour: float, lon: np.ndarray, lat: np.ndarray, ak: 
         _ive_var(nc, "PS", ("time", "nz1", "ny", "nx"), box + (0.0, 0.0))[0, 0] = ps
     finally:
         buf = nc.close()
-    path.write_bytes(buf)
+    part = path.with_name(path.name + ".part")  # renamed when complete: a reader never sees a partial file
+    part.write_bytes(buf)
+    os.replace(part, path)
 
 
 def _pname(time: np.datetime64) -> str:
@@ -201,6 +204,71 @@ def write_pfiles_3d(outdir: str | Path, times: np.ndarray, lon: np.ndarray, lat:
                      (float(bk[0]) * PS_HPA, float(bk[-1]) * PS_HPA))
         paths.append(path)
     return paths
+
+
+BK_BOTTOM = 0.002
+
+
+def write_pfile_plev(outdir: str | Path, time: np.datetime64, lon: np.ndarray, lat: np.ndarray,
+                     plev_hpa: np.ndarray, u: np.ndarray, v: np.ndarray, omega: np.ndarray, ps: np.ndarray,
+                     t: np.ndarray | None = None, epoch: str = "2000-01-01T00") -> Path:
+    """Write one LAGRANTO P file for 3-D trajectories on pressure levels (one time).
+
+    caltra builds the pressure of level k as p = ak(k) + bk(k) * PS, and the IVE reader reads PS only if some
+    bk exceeds 0.001: with ak = p and every bk = 0 it puts the ground at 1000 hPa everywhere, so parcels can sink
+    below high terrain. The bottom level therefore gets bk = BK_BOTTOM and ak = p - BK_BOTTOM * 1000 hPa (its
+    pressure moves by BK_BOTTOM * (PS - 1000 hPa), under 1 hPa for PS above 500 hPa); the other levels are pure
+    pressure levels. Levels are written bottom first, PS in hPa, latitudes S->N, and a global longitude axis is
+    closed at lon[0] + 360. The file appears under its final name only when complete.
+
+    Args:
+        outdir: Directory for the file (created if missing); the file is named ``PYYYYMMDD_HH``.
+        time: Valid time on a full hour.
+        lon: Longitudes in degrees, equally spaced and increasing, shape (nx,).
+        lat: Latitudes in degrees, equally spaced, either order, shape (ny,).
+        plev_hpa: Pressure levels in hPa, strictly monotonic in either order, shape (nlev,); the level order of
+            ``u``, ``v``, ``omega`` and ``t``.
+        u: Zonal wind in m/s, shape (nlev, ny, nx).
+        v: Meridional wind in m/s, shape (nlev, ny, nx).
+        omega: Pressure vertical velocity in Pa/s, shape (nlev, ny, nx); run caltra with wfactor = 1.
+        ps: Surface pressure in Pa, shape (ny, nx).
+        t: Optional temperature in K, shape (nlev, ny, nx), written as T for ``trace``.
+        epoch: The file's time variable holds hours since this time (caltra itself goes by the file names).
+
+    Returns:
+        Path of the written file.
+    """
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    plev = np.asarray(plev_hpa, dtype=np.float64)
+    dp = np.diff(plev)
+    if plev.ndim != 1 or plev.size < 2 or not (np.all(dp > 0) or np.all(dp < 0)):
+        raise ValueError("plev_hpa must be 1-D, with at least 2 strictly monotonic values")
+    nlev, ny, nx = plev.size, np.size(lat), np.size(lon)
+    fields = {"U": u, "V": v, "OMEGA": omega} | ({"T": t} if t is not None else {})
+    for name, a in fields.items():
+        if np.shape(a) != (nlev, ny, nx):
+            raise ValueError(f"{name} must have shape (nlev, ny, nx) = {(nlev, ny, nx)}, got {np.shape(a)}")
+    if np.shape(ps) != (ny, nx):
+        raise ValueError(f"ps must have shape (ny, nx) = {(ny, nx)}, got {np.shape(ps)}")
+    time = np.datetime64(time, "m")
+    if time.astype("datetime64[h]") != time:
+        raise ValueError("time must fall on a full hour (P file names carry YYYYMMDD_HH)")
+    hour = np.float32((time - np.datetime64(epoch, "m")) / np.timedelta64(1, "h"))
+    lev = slice(None) if dp[0] < 0 else slice(None, None, -1)  # bottom (largest pressure) first
+    p = plev[lev].astype(np.float32)
+    bk = np.zeros(nlev, np.float32)
+    bk[0] = BK_BOTTOM
+    ak = (p - bk * np.float32(PS_HPA)).astype(np.float32)
+    lon_w, lat_w, flip, close = _horizontal(lon, lat)
+    ps_hpa = _orient(ps, flip, close) / np.float32(100.0)
+    if not (100.0 < ps_hpa.min() and ps_hpa.max() < 1200.0):
+        raise ValueError(f"ps spans {ps_hpa.min() * 100:.4g} to {ps_hpa.max() * 100:.4g}; give Pa")
+    path = outdir / _pname(time)
+    _write_pfile(path, hour, lon_w, lat_w, ak, bk,
+                 {name: _orient(np.asarray(a)[lev], flip, close) for name, a in fields.items()}, ps_hpa,
+                 (float(p[0]), float(p[-1])))
+    return path
 
 
 def startfile(path: str | Path, lon: np.ndarray, lat: np.ndarray, p: float | np.ndarray = 500.0,
