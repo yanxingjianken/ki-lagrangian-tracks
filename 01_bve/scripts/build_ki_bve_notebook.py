@@ -94,7 +94,7 @@ cells = [
          "    print('trained on', hist['world_size'], 'GPUs; best step', ck['step']); plt.show()"),
     md("## 7. Conditional forecast and backcast on unseen patches and unseen flows\nTargets are 128 parcels that are not "
        "in the context. `no learning` is straight motion at the anchor velocity."),
-    code(source("ki_tracks.py", "stereo_to_lonlat", "great_circle_km") + "\n\n\n"
+    code(source("geo.py", "stereo_to_lonlat", "great_circle_km") + "\n\n\n"
          "class Straight(nn.Module):\n    def encode(self, tok):\n        return None\n\n    def decode(self, z, q):\n        return torch.zeros_like(q[..., 1:3]), None\n\n\n"
          "cases = [('trained flows, unseen patches', [f['name'] for f in FLOWS if f['split'] == 'train'], [18, 19])]\n"
          "cases += [(f['label'], [f['name']], list(range(20))) for f in FLOWS if f['split'] == 'test']\n"

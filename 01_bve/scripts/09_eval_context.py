@@ -17,7 +17,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ctx_data import context, load_patches, rollout  # noqa: E402
 from ctx_model import ContextKI  # noqa: E402
-from ki_tracks import great_circle_km, stereo_to_lonlat  # noqa: E402
+from geo import great_circle_km, stereo_to_lonlat  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser()

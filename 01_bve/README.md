@@ -94,8 +94,10 @@ A first version fitted one unconditional KI, a(t, x, v), per patch (the ocean-pa
 because the other parcels had already shown it the field at those times, but its 24-h forecasts and backcasts were
 only slightly better than straight motion (585 and 802 km against 683 and 1396 km), and on another region of the
 same flow, a new stirring, or a new jet, its gap filling was worse than straight motion (173–219 km against
-108–153 km): its inputs carry no information about which flow it is in. The scripts of that version are
-`05_train.py`, `06_eval.py`, `07_figures.py` (figures `f1_abilities.png`, `f2_unseen_flows.png`).
+108–153 km): its inputs carry no information about which flow it is in.
+
+Design step: `scripts/design/tune_stirring.py` chose the stirring amplitude (4e-10 s⁻²) so that parcels move at about
+23 m/s and turn within about 20 h in a 30 m/s jet (`outputs/design/tune_stirring*.json`).
 
 ## Tests
 

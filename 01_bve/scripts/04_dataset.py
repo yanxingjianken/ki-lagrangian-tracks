@@ -11,7 +11,7 @@ import numpy as np
 from scipy.interpolate import CubicSpline
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ki_tracks import lonlat_to_stereo  # noqa: E402
+from geo import lonlat_to_stereo  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser()

@@ -20,7 +20,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ctx_data import context, flow_names, load_patches, rollout, sample_batch  # noqa: E402
 from ctx_model import ContextKI  # noqa: E402
-from ki_tracks import great_circle_km, stereo_to_lonlat  # noqa: E402
+from geo import great_circle_km, stereo_to_lonlat  # noqa: E402
 from live_panels import context_png, loss_png  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
