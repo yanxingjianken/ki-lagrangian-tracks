@@ -31,7 +31,11 @@ used, and deleted.
 | 1 | `scripts/run_production.py` (detached) — downloads hours in time order with `scripts/era5_pfiles.py` workers, at most 400 GB of P files ahead of the earliest unfinished release; tracks each release once its 157 P files exist; deletes P files no unfinished release needs; resumes from finished releases | `data/pfiles/` (transient), `outputs/logs/production/` |
 | 2 | `scripts/11_tracks.py` — seeds the patches (start pressure σ × bilinear PS), runs 8 caltra jobs of patch-ordered parcels (full 3-D, `-j`, 1-min step, 10-min output, wfactor 1 checked) | `data/lagranto/<release>.npz` (transient) |
 | 3 | `scripts/12_dataset.py` — Southern-Hemisphere patches mirrored to the north; polar-stereographic x, y and z = −7 km ln(p/1000 hPa); spline velocity and acceleration, hourly, float32 | `data/tracks/tracks_<release>.npz` |
+| 4 | `scripts/13_check_release.py` — tracks of two patches on a map and their pressure; kept/dropped parcels, displacement per level, parcels below the surface | `figures/check_<release>.png` |
 | 20 | `scripts/20_train_context.py` (`torchrun`, DDP) — training set sharded by release across GPUs, float32 x, v, a on the GPUs | `outputs/models/context_ki_era5.pt`, live panels in `outputs/logs/` |
+| 21 | `scripts/21_eval_context.py` — unseen patches of the training releases, 2021, 2021 at unseen latitudes; anchors 48/72/96 h; horizontal (km) and vertical (hPa) errors against straight motion | `outputs/eval/context_ki_era5.csv.gz` |
+| 22 | `scripts/22_figures.py` | `figures/f1_conditional_ki_era5.png`, `figures/f2_by_level.png` |
+| all | `scripts/run_all.sh` (detached) — production for every release; training once all training releases have tracks; evaluation and figures once 2021 is done | `outputs/logs/run_all.log` |
 
 ```mermaid
 graph TD
@@ -41,7 +45,19 @@ graph TD
     T --> S["12_dataset.py -> data/tracks/tracks_release.npz (x, v, a, lat, p; SH mirrored)"]
     T --> X["P files no unfinished release needs are deleted"]
     S --> TR["20_train_context.py: DDP, training set sharded across GPUs 1+2"]
+    TR --> E["21_eval_context.py: unseen patches, 2021, unseen latitudes"]
+    S --> E
+    E --> F["22_figures.py -> figures/f1, f2"]
 ```
+
+## First release
+
+Release tr147 (2017-01-05 18 UTC): 153 600 tracks, none dropped or incomplete; 23 min for 8 caltra runs with two
+other releases running. Median 24-h displacement 660–950 km for start sigma 0.62–0.967 and 1640–2260 km for
+sigma 0.10–0.38; median 24-h pressure change 29–64 hPa for sigma 0.43–0.967 and 4–36 hPa for sigma 0.10–0.38; no
+parcel below the surface pressure.
+
+![first release](figures/check_tr147.png)
 
 ## The model
 

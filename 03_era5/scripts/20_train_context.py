@@ -9,6 +9,7 @@ outputs/models/<name>.pt (best by validation), <name>_latest.pt, <name>_history.
 outputs/logs/live_<name>_{loss,best,latest}.png.
 """
 import argparse
+import datetime
 import json
 import math
 import os
@@ -49,7 +50,8 @@ a = p.parse_args()
 
 distributed = int(os.environ.get("WORLD_SIZE", "1")) > 1
 if distributed:
-    dist.init_process_group("nccl")
+    # long timeout: each rank reads its shard (about 100 GB) before the first collective call
+    dist.init_process_group("nccl", timeout=datetime.timedelta(minutes=60))
     rank, world, local = dist.get_rank(), dist.get_world_size(), int(os.environ["LOCAL_RANK"])
     torch.cuda.set_device(local)
 else:
