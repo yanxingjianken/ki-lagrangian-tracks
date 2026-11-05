@@ -61,6 +61,7 @@ set flag_i     = "nil"
 set flag_t     = "nil"
 set flag_o     = "nil"
 set flag_p     = "nil"
+set flag_w     = "nil"
 set changet    = 'false'
 set noclean    = 'false'
 set timecheck  = 'no' 
@@ -97,6 +98,12 @@ while ( $#argv > 0 )
    case -p
      set flag_p=1
      echo "Flag '-p'     -> ${flag_p} (user defined)"
+   breaksw
+
+   case -wfactor
+     set flag_w=$argv[2]
+     echo "Flag '-wfactor' -> ${flag_w} (user defined)"
+     shift;
    breaksw
 
    case -changet
@@ -422,21 +429,32 @@ if ( $omflag != 1 ) then
    exit 1
 endif
 
-# Get the maximum and minimum wind on 850 hPa and decide the <wfactor>
-set wmin  = `${LAGRANTO}/goodies/getmima $file OMEGA P850 | awk '{print $1}'`
-set wmax  = `${LAGRANTO}/goodies/getmima $file OMEGA P850 | awk '{print $2}'`
-set wmin  = `echo $wmin | sed -e 's/\.//'`
-set wmax  = `echo $wmax | sed -e 's/\.//'`
-set wdiff = `echo $wmax - $wmin | bc`
-if ( $wdiff > 400 ) then
-    set wfactor=1.
-endif
-if ( $wdiff < 400 ) then
-    set wfactor=100.
+# Decide the <wfactor> (p advances by wfactor * OMEGA * dt / 100 hPa): OMEGA in Pa/s needs 1, the default.
+# '-wfactor <value>' sets it; '-wfactor auto' keeps the trunk's guess from the 850-hPa OMEGA range, which
+# returns 100 whenever that range is below 0.4 Pa/s (any weak or horizontally uniform OMEGA field).
+if ( "${flag_w}" == "nil" ) then
+    set wfactor = 1.
+    set wsource = "default: OMEGA in Pa/s"
+else if ( "${flag_w}" == "auto" ) then
+    set wmin  = `${LAGRANTO}/goodies/getmima $file OMEGA P850 | awk '{print $1}'`
+    set wmax  = `${LAGRANTO}/goodies/getmima $file OMEGA P850 | awk '{print $2}'`
+    set wmin  = `echo $wmin | sed -e 's/\.//'`
+    set wmax  = `echo $wmax | sed -e 's/\.//'`
+    set wdiff = `echo $wmax - $wmin | bc`
+    if ( $wdiff > 400 ) then
+        set wfactor=1.
+    endif
+    if ( $wdiff < 400 ) then
+        set wfactor=100.
+    endif
+    set wsource = "auto: 850-hPa OMEGA range ${wdiff} mPa/s"
+else
+    set wfactor = ${flag_w}
+    set wsource = "user defined"
 endif
 
 # Write status information
-echo "Vertical scaling factor (wfactor)  : ${wfactor}"
+echo "Vertical scaling factor (wfactor)  : ${wfactor} (${wsource})"
 
 next1:
 

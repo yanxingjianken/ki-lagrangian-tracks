@@ -140,7 +140,14 @@ cells = [
          "        ax.plot(g.horizon_h, g.median_km, 'o-' if mlabel == 'conditional KI' else 's:', color=colors[label], label=f'{label} ({mlabel})')\n"
          "    ax.set(xscale='log', yscale='log', xlabel='horizon (h)', title=task); ax.set_xticks(HORIZONS_H, [str(h) for h in HORIZONS_H]); ax.xaxis.set_minor_locator(plt.NullLocator())\n"
          "axes[0].set_ylabel('median error of target parcels (km)'); axes[1].legend(fontsize=7, frameon=False)\nplt.show()"),
-    md("## 10. Optional export\nSet `SAVE = True` to write the summary table."),
+    md("## 10. Test movies\nOne movie per test case, written by `scripts/11_movies.py`: forecast (left) and backcast "
+       "(right) of 12 target parcels over the evolving flow — relative vorticity (colour), streamfunction (contours) and "
+       "wind (arrows); grey = the other parcels' observed tracks (the model's input), blue = truth, red dashed = model."),
+    code("from IPython.display import Video, display\n"
+         "for mp4 in sorted((ROOT / 'figures/movies').glob('*.mp4')):\n"
+         "    print(mp4.stem.replace('_', ' '))\n"
+         "    display(Video(str(mp4), embed=True, width=900))"),
+    md("## 11. Optional export\nSet `SAVE = True` to write the summary table."),
     code("SAVE = False\nif SAVE:\n    out = ROOT / 'outputs/notebook'; out.mkdir(parents=True, exist_ok=True)\n    summary.to_csv(out / 'summary.csv', index=False)"),
 ]
 nb = nbf.v4.new_notebook(cells=cells)

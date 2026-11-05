@@ -1,8 +1,8 @@
 """Analytic checks of caltra -2d and trace on synthetic solid-body winds (1 deg global grid, hourly, 48 h).
 
-Run:  micromamba run -n isca python -m pytest -q tests/test_lagranto_2d.py
-Needs a built LAGRANTO (bash build.sh). Scratch files go to $LAGRANTO_TEST_DIR (default: a pytest temporary directory);
-set LAGRANTO_TEST_KEEP=1 to keep them.
+Run:  LAGRANTO_TEST_DIR=/path/to/scratch micromamba run -n isca python -m pytest -q tests/test_lagranto_2d.py
+Needs a built LAGRANTO (bash build.sh). Scratch files go to a new directory under $LAGRANTO_TEST_DIR, removed afterwards
+unless LAGRANTO_TEST_KEEP=1; without LAGRANTO_TEST_DIR the module is skipped (/tmp is not used).
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ LAGRANTO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(LAGRANTO / "python"))
 import lagranto_io as lio  # noqa: E402
 
-SCRATCH = Path(os.environ.get("LAGRANTO_TEST_DIR", tempfile.mkdtemp(prefix="lagranto_test_")))
+BASE = os.environ.get("LAGRANTO_TEST_DIR")
 A_LAG = 1.112e5 * 180.0 / np.pi  # sphere radius implied by caltra's 1.112e5 m per degree
 U0 = 30.0
 NHOURS = 48
@@ -33,7 +33,8 @@ BOUNDS_T5 = {  # (case, hour): (median km, max km), 5-min step
     ("tilted", 24): (0.60, 4.5), ("tilted", 48): (1.0, 7.5),
 }
 
-pytestmark = pytest.mark.skipif(not (LAGRANTO / "caltra" / "caltra").exists(), reason="run bash build.sh first")
+pytestmark = [pytest.mark.skipif(not (LAGRANTO / "caltra" / "caltra").exists(), reason="run bash build.sh first"),
+              pytest.mark.skipif(BASE is None, reason="set LAGRANTO_TEST_DIR to a scratch directory")]
 
 
 def unit(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
@@ -82,8 +83,8 @@ def caltra(d: Path, out: str, step: int) -> dict[str, np.ndarray]:
 
 @pytest.fixture(scope="module")
 def cases():
-    SCRATCH.mkdir(parents=True, exist_ok=True)
-    root = Path(tempfile.mkdtemp(prefix="pytest_", dir=SCRATCH))
+    Path(BASE).mkdir(parents=True, exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix="pytest_", dir=BASE))
     lon = np.arange(0.0, 360.0, 1.0)
     lat = np.arange(90.0, -90.5, -1.0)  # N->S on purpose: the writer must flip it
     lat2, lon2 = np.meshgrid(lat, lon, indexing="ij")

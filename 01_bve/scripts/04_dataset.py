@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser()
 p.add_argument("--window", type=int, default=0)
 p.add_argument("--run", default="stirred_jet", help="data/bve_<run>.nc")
-p.add_argument("--source", default="lagranto", help="lagranto, or heun for the cross-check tracks")
+p.add_argument("--source", default="lagranto", help="prefix of the raw track file in data/")
 p.add_argument("--fractions", type=float, nargs=3, default=[0.7, 0.1, 0.2])
 p.add_argument("--trim-h", type=float, default=0.0, help="drop this much at both ends")
 p.add_argument("--every-h", type=float, default=None, help="store every this many hours (default: every track time)")

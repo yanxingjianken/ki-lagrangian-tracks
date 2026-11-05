@@ -65,6 +65,9 @@ Periodicity flag. If set, a periodic domain is assumed in zonal direction. Per d
 .B not
 set.
 .TP 15
+.I -wfactor value
+Vertical-velocity factor for 3D trajectories: the pressure advances by value * OMEGA * dt / 100 hPa (dt in s), so OMEGA in Pa/s needs 1, the default. With "-wfactor auto" the factor is guessed from the 850-hPa OMEGA range of the first P file (1 above 0.4 Pa/s, 100 below), as in the unpatched script.
+.TP 15
 .I -changet
 flag whether the times of the P and S files should be changed or not before a calculation; the default is that the
 times are 

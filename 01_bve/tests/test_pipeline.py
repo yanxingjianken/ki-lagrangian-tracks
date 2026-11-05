@@ -40,3 +40,16 @@ def test_regular_grid_solid_body():
     uv = g.uv(zs[None])[0].cpu().numpy()
     assert np.abs(uv[0] - u0 * np.cos(np.deg2rad(g.lat))[:, None]).max() < 1e-6 * u0
     assert np.abs(uv[1]).max() < 1e-6 * u0
+
+
+@pytest.mark.skipif(not (ROOT / "data/bve_j1_m4.nc").exists(), reason="flows not run")
+def test_streamfunction_gives_the_wind():
+    import xarray as xr
+    from flowfields import A_M, streamfunction
+    ds = xr.open_dataset(ROOT / "data/bve_j1_m4.nc").isel(time=100)
+    psi = streamfunction(ds.u.values, ds.v.values)
+    lat = np.deg2rad(ds.lat.values)
+    u_psi = -np.gradient(psi, lat, axis=0) / A_M
+    mid = np.abs(ds.lat.values) < 75
+    assert np.corrcoef(ds.u.values[mid].ravel(), u_psi[mid].ravel())[0, 1] > 0.99
+    assert abs(np.std(u_psi[mid]) / np.std(ds.u.values[mid]) - 1) < 0.05

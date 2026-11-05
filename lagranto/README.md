@@ -1,19 +1,20 @@
-# LAGRANTO for 2-D (model-level) trajectories
+# LAGRANTO for 2-D (model-level) and 3-D trajectories
 
 LAGRANTO is the Lagrangian analysis tool of Michael Sprenger and Heini Wernli (ETH Zurich): `caltra` integrates
 parcel trajectories through gridded winds, `trace` interpolates fields along them, `select` filters them.
 Reference: M. Sprenger and H. Wernli (2015), The LAGRANTO Lagrangian analysis tool – version 2.0, Geosci. Model Dev. 8, 2569–2586, doi:10.5194/gmd-8-2569-2015.
 
-Here it computes 2-D trajectories from the winds of our barotropic vorticity model (BVE); 3-D trajectories from
-Isca come later.
+Here it computes 2-D trajectories from the winds of our barotropic vorticity model (BVE) and 3-D trajectories from
+a 15-level sigma-coordinate primitive-equation model (section "3-D trajectories from sigma levels").
 
 ## Source
 
 - LAGRANTO.ecmwf trunk, revision 47, from the ETH public SVN https://svn.iac.ethz.ch/pub/lagranto.ecmwf/trunk/,
   licence GPLv3 (`LICENSE.pdf`). This directory is that trunk, flattened (`caltra/`, `trace/`, `lib/`, ...).
-- Two small source edits, listed with reasons in `PATCHES.md`: binary trajectory output opened an
-  uninitialised Fortran unit (`lib/iotra.f`), and the 500-input-file limit is raised to 5000 (`caltra/caltra.f`,
-  `trace/trace.f90`). Everything else is unmodified.
+- Small source edits, listed with reasons in `PATCHES.md`: binary trajectory output opened an uninitialised
+  Fortran unit (`lib/iotra.f`); the 500-input-file limit is raised to 5000 (`caltra/caltra.f`, `trace/trace.f90`);
+  `caltra.sh` takes `-wfactor` and no longer guesses the vertical-velocity factor (3-D runs, see "wfactor"), with
+  its man page entry. Everything else is unmodified.
 
 ## Build
 
@@ -112,11 +113,13 @@ start points; caltra's metric (1.112e5 m per degree) is used for the sphere radi
   59 km at 10 min, 1059 km at 5 min (the parcel that passes over the pole), 2.6 km at 2 min, 1.2 km at 1 min;
   south pole 46 km at 5 min, 6.7 km at 1 min.
 - `tests/test_lagranto_2d.py` repeats the 5-min and 1-min runs and trace and asserts these numbers with a margin
-  of about 1.5 (`micromamba run -n isca python -m pytest -q tests/test_lagranto_2d.py`, 45 s).
+  of about 1.5 (`LAGRANTO_TEST_DIR=<scratch> micromamba run -n isca python -m pytest -q tests/test_lagranto_2d.py`,
+  20 s; the tests are skipped without `LAGRANTO_TEST_DIR`, so nothing is written to /tmp).
 
 ## Scale test: 30 days, 2000 parcels, T85-size grid
 
-256 x 129 equiangular grid with poles (1.40625 deg), 721 hourly P files (1.2 MB each, written in 81 s), same
+256 x 129 equiangular grid with poles (1.40625 deg), 721 hourly P files (1.2 MB each, written in 81 s before the
+writer built each file in memory; it now takes about 0.04 s per 8-MB file), same
 tilted flow, 2000 random parcels 20-75N, 10-min output:
 
 | Step | Wall time | 30-day median error | 30-day max error |
@@ -128,6 +131,119 @@ tilted flow, 2000 random parcels 20-75N, 10-min output:
 Memory 160 MB; the `.3` output is 138 MB (an ASCII `.1` file is about twice that). `trace` of U and V: 21 s,
 560 MB, 207 MB output. The large errors come from 1-3 of the 2000 parcels, each after passing within 0.1 deg of
 the north pole.
+
+## 3-D trajectories from sigma levels
+
+caltra without `-2d` integrates (lon, lat, p) with U, V and OMEGA; trace interpolates any 3-D field in (lon, lat, p).
+`python/lagranto_io.py:write_pfiles_3d` writes the P files from sigma-level model output. Rows marked (source) are
+read off `caltra.f`, `lib/ioinp_ive.f` and `lib/inter.f`; the others were checked by running caltra.
+
+### P-file format
+
+As for `-2d` (file names, `float` variables, `xmin`/`xmax`/`ymin`/`ymax`/`missing_data` attributes, closed global
+longitude, latitudes S->N, `time` variable, constants block with `constants_file_name` pointing at the file itself),
+with these differences:
+
+| Item | Requirement |
+|------|-------------|
+| Variables | `U`, `V` (m/s), `OMEGA` (Pa/s), optional `T` (K) or any other field for trace, dims `(time=1, nz, ny, nx)`; `PS` (hPa) dims `(time=1, 1, ny, nx)`. No `P` variable: caltra builds pressure from PS. |
+| Vertical coordinate | Level k has p = ak(k) + bk(k) * PS (hPa). Pure sigma: ak = 0, bk = sigma. Write the same values into `aklev`/`bklev` and `aklay`/`bklay`: the integration uses the level arrays (each time step calls `input_grid` with OMEGA, whose `zstag` = 0 selects lev); the first-file call uses the layer arrays only for the start-point surface check, and reads PS only if some `bklay` is non-zero (otherwise it assumes 1000 hPa). Measured: `bklev` = 0 runs without error but leaves parcels almost still (1.15 instead of 18 hPa descent in 1 h); `bklay` = 0 changes nothing visible with PS = 1000 hPa. |
+| Level order | Level 1 is the bottom, pressure decreasing with index ((source) the binary level search in `get_index3` assumes it). Top-first files run without error and give wrong pressures (513.5 instead of 518.0 hPa after 1 h in a test). |
+| Sigma | 0 < sigma < 1: with a level at sigma = 1 the surface-layer index (ps - p)/(ps - p_1) is 0/0 for a parcel at PS (source). Between the lowest level and PS caltra tapers OMEGA linearly to 0 at PS (source; see "-j"). Above the top level OMEGA is held at its top-level value and there is no lid (source). |
+| Units | OMEGA in Pa/s with wfactor = 1 (see "wfactor"). PS in hPa; `write_pfiles_3d` takes Pa and rejects values that look like hPa. |
+
+`write_pfiles_3d(outdir, times, lon, lat, sigma, u, v, omega, ps, t=None)`: u, v (m/s), omega (Pa/s), t (K) of
+shape (nt, nlev, nlat, nlon); sigma (nlev,) top-to-bottom or bottom-to-top (both give identical files); ps in Pa
+(nt, nlat, nlon); latitudes either order. Arrays are converted one time at a time, so memmaps work. A 1-deg 0-90N
+file with U, V, OMEGA, T on 15 levels is 7.9 MB and takes 0.04 s to write.
+
+### Commands
+
+```bash
+cd <directory with the P files>
+caltra 20000101_00 20000103_00 startf traj.3 -i 1 -t 1 -o 10 -j > caltra.log
+printf "U 1. 0 P\nV 1. 0 P\nOMEGA 1. 0 P\nT 1. 0 P\n" > tracevars
+trace traj.3 traj_uvwt.3
+```
+
+```python
+from lagranto_io import write_pfiles_3d, startfile, caltra_wfactor, read_traj
+write_pfiles_3d(rundir, times, lon, lat, sigma, u, v, omega, ps, t)   # ps in Pa
+startfile(rundir / "startf", lon0, lat0, sigma0 * ps0 / 100.0)         # start pressure in hPa
+# ... run caltra as above, stdout to caltra.log ...
+caltra_wfactor(rundir / "caltra.log")                                  # raises unless wfactor = 1
+tr = read_traj(rundir / "traj_uvwt.3")                                 # time, lon, lat, p, U, V, OMEGA, T
+```
+
+### wfactor
+
+caltra moves a parcel by p1 = p0 + wfactor * OMEGA * dt / 100 (p in hPa, dt in s), so OMEGA in Pa/s needs
+wfactor = 1. The trunk `caltra.sh` guessed the factor from the 850-hPa OMEGA range of the first P file and chose
+100 whenever that range was below 0.4 Pa/s: any weak or horizontally uniform OMEGA field (and OMEGA = 0) was
+multiplied by 100. Of the OMEGA fields below only "b strong" (range 0.5 Pa/s) would have kept wfactor 1. The patched
+`caltra.sh` (PATCHES.md, edit 4):
+
+- uses wfactor = 1 unless told otherwise and prints
+  `Vertical scaling factor (wfactor)  : 1. (default: OMEGA in Pa/s)`;
+- `-wfactor <value>` sets the factor; `-wfactor auto` runs the trunk's guess unchanged;
+- `lagranto_io.caltra_wfactor(log)` reads that line and caltra's `Vertical wind (scale)` line from the log, checks
+  that they agree and raises `ValueError` unless the factor is 1. The pytest checks it on every 3-D run.
+
+With `-wfactor auto`, case "b weak" got wfactor 100 and a 48-h pressure error of 360 hPa (median) instead of
+0.018 hPa; case a3 got 203 hPa instead of 0.0015 hPa.
+
+### -j: parcels near the ground
+
+We run 3-D caltra with `-j`. Below the lowest sigma level (0.967, about 33 hPa above the ground) caltra tapers
+OMEGA linearly to zero at PS. In a sigma model the surface OMEGA is DPS/Dt, not zero, so a parcel that descends
+into this layer follows PS only while PS is steady. When PS falls along its path the parcel reaches p > PS:
+without `-j` caltra flags it as leaving the domain and writes -999 for the rest of the run (the man page's "stick at
+the same position" is wrong); with `-j` it is put back at PS - 10 hPa and keeps moving. Parcels that stay on or
+above the lowest level are not affected. Measured, 12 parcels started at sigma 0.967, u = v = 0:
+
+| Case | Setup | Without `-j` | With `-j` |
+|------|-------|--------------|-----------|
+| c1 | PS = 1000 hPa steady, omega = 2 sigma (1 - sigma) Pa/s (descent) | approaches PS (998.8 hPa at 48 h, exact 998.9); none lost; error 0.18 / 0.09 hPa at 24 / 48 h | identical |
+| c2 | PS falls 0.5 hPa/h, sigma-dot = 2e-5 sigma (1 - sigma) 1/s (descent across sigma surfaces) | the parcels sink to PS instead of rising with it (985.8 hPa at 24 h, exact 982.0, PS 988.0); all 12 lost at 27.7 h | none lost; two resets per parcel (27.7 and 41.2 h); error -8.2 to +4.6 hPa over 48 h, 2.9 hPa at 48 h |
+| c3 | PS falls 0.5 hPa/h, sigma-dot = 0 (omega = sigma dPS/dt) | stays on sigma 0.967: error 0.005 hPa at 48 h | identical |
+
+To find parcels that touched the ground, trace PS as well (`PS 1. 0 P` after a 3-D variable in `tracevars`; along
+c2 it matches PS to 4e-5 hPa) and flag PS - p < 10 hPa, or look for upward jumps of about 10 hPa in p.
+
+### Accuracy (synthetic sigma-level winds)
+
+Setup: 15 sigma levels (0.018, 0.060, 0.106, 0.152, 0.197, 0.241, 0.287, 0.338, 0.400, 0.477, 0.569, 0.674, 0.784,
+0.887, 0.967), 1-deg grid over 0-90N (91 x 361 after closing; a2 global), hourly files over 48 h, `-t 1 -o 10 -j`,
+binary output, wfactor = 1. Analytic positions use caltra's sphere radius; pressure error |p - p_exact| in hPa,
+horizontal error great-circle km.
+
+| Case | Setup | Error | 24 h median | 24 h max | 48 h median | 48 h max |
+|------|-------|-------|-------------|----------|-------------|----------|
+| a1 | solid-body rotation about the pole, u = 30 cos(lat) m/s, OMEGA = 0, PS = 1000 hPa; 800 parcels 20-75N at sigma 0.967, 0.8, 0.5, 0.152 | km | 0.289 | 1.92 | 0.577 | 3.83 |
+| a1 | | hPa | 0 | 0 | 0 | 0 |
+| a2 | as a1, rotation about the axis through 45N 0E, global grid | km | 0.074 | 0.63 | 0.137 | 0.99 |
+| a2 | | hPa | 0 | 0 | 0 | 0 |
+| a3 | as a1 with PS = 1000 hPa + 20 hPa sin(2 lon) cos(lat) and OMEGA = sigma u . grad PS (sigma surfaces material); exact p = sigma0 PS(lon(t), lat) | hPa | 0.0007 | 0.0074 | 0.0015 | 0.017 |
+| b strong | u = v = 0, PS = 1000 hPa, OMEGA = 2 cos(lon) sigma (1 - sigma) Pa/s; 48 parcels at sigma0 0.4-0.7, 30-deg apart; exact sigma(t) logistic; 48-h displacement -631 to +555 hPa | hPa | 1.09 | 2.19 | 0.89 | 2.19 |
+| b weak | as b strong with 0.02 Pa/s; 48-h displacement up to 8.6 hPa; 850-hPa OMEGA range 0.005 Pa/s | hPa | 0.009 | 0.071 | 0.018 | 0.13 |
+
+- a1, a2: the horizontal errors equal the 2-D 1-min values to the last digit and the pressure does not change at
+  all: with OMEGA = 0 the 3-D path adds no vertical motion.
+- b strong: almost the whole error is the linear-in-p interpolation of the quadratic OMEGA profile between levels.
+  A double-precision RK4 integration of the piecewise-linear profile caltra sees (including its taper below
+  0.967) matches caltra to 0.0009 hPa at 24 h and 0.0006 hPa at 48 h.
+- b weak: interpolation and single-precision rounding contribute about equally at 48 h (0.08 and 0.07 hPa at
+  most: the piecewise-linear integration against the exact solution, and caltra against it). A 1-min step changes
+  p by at most 0.003 hPa, while p is rounded to 3e-5 to 6e-5 hPa (256 to 1024 hPa) at each of the 2880 steps.
+- trace (U, V, OMEGA, T along the trajectories): U and V within 0.0018 m/s of the analytic wind (bilinear
+  interpolation), T within 0.0006 K, OMEGA within 3e-6 Pa/s (a3) and 0.006 Pa/s (b strong, the linear-in-p
+  interpolation). Below the lowest level trace returns the lowest-level value ("pressure too high ... adjusted to
+  lowest level"), not the tapered OMEGA caltra used.
+- Cost: writing 49 files 2 s, caltra (800 parcels, 2880 steps) 7 s, trace of four fields 4 s.
+- `tests/test_lagranto_3d.py` repeats a1, a3, b strong and b weak (plus `-wfactor auto` on b weak, the trace of
+  a3, the file layout and the wfactor parser) with a margin of about 1.5
+  (`LAGRANTO_TEST_DIR=<scratch> micromamba run -n isca python -m pytest -q tests/test_lagranto_3d.py`, 35 s,
+  1.3 GB of P files, removed afterwards).
 
 ## Gotchas
 
@@ -151,17 +267,27 @@ the north pole.
   `grid="equiangular"` with nlat = 129 for 256 longitudes gives 90 to -90 deg in 1.40625 deg steps).
 - caltra's sphere radius is 1.112e5 m per degree (6371.3 km); for a model with a = 6371.0 km the speed mismatch
   is 0.004 %.
+- 3-D: `caltra.sh` prints the wfactor only in 3-D mode; always check it (`caltra_wfactor`). An unpatched
+  `caltra.sh` would multiply weak OMEGA by 100 without any warning.
+- 3-D: model output on a Gaussian grid must be evaluated on an equiangular grid with the pole rows, as for the
+  BVE; OMEGA must be the model's Dp/Dt on the sigma levels (Pa/s), consistent with PS.
 
 ## Flow
 
 ```mermaid
 graph TD
     A["bash build.sh<br/>gfortran 15 + netCDF-Fortran, IVE reader"] --> C
+    A --> C3
     B["lagranto_io.write_pfiles<br/>P20000101_00 ... one file per hour<br/>U, V, P on 2 levels, PS, closed lon, poles"] --> C
+    B3["lagranto_io.write_pfiles_3d<br/>U, V, OMEGA (Pa/s), T on sigma levels, bottom first<br/>PS (hPa), ak = 0, bk = sigma"] --> C3
     S["lagranto_io.startfile<br/>lon lat p"] --> C
-    C["caltra start end startf traj.3 -2d -i 1 -t 5 -o 10"] --> T
+    S --> C3
+    C["2-D: caltra start end startf traj.3 -2d -i 1 -t 5 -o 10"] --> T
+    C3["3-D: caltra start end startf traj.3 -i 1 -t 1 -o 10 -j<br/>wfactor = 1 by default"] --> T
+    C3 --> W["lagranto_io.caltra_wfactor(caltra.log)<br/>raises unless wfactor = 1"]
     C --> F["traj.3: time, lon, lat, p"]
-    T["trace traj.3 traj_uv.3<br/>tracevars: U, V"] --> G["traj_uv.3: time, lon, lat, p, U, V"]
+    C3 --> F
+    T["trace traj.3 traj_uv.3<br/>tracevars: U, V (3-D: also OMEGA, T, PS)"] --> G["traj_uv.3: time, lon, lat, p, traced fields"]
     F --> R["lagranto_io.read_traj"]
     G --> R
 ```

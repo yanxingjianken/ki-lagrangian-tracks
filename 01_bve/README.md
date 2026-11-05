@@ -23,6 +23,7 @@ unseen patches of those flows and on 3 flows it never saw.
 | 5 | `scripts/08_train_context.py` (`scripts/run_context.sh 1,2`: `torchrun` DDP) — training patches 0–15 of the training flows, validation patches 16–17 | `outputs/models/context_ki.pt`, live panels in `outputs/logs/` |
 | 6 | `scripts/09_eval_context.py` — unseen patches 18–19 of the training flows and all patches of the unseen flows; anchors 48, 72, 96 h after release; 128 target parcels not in the context | `outputs/eval/context_ki.csv.gz` |
 | 7 | `scripts/10_figures_context.py` | `figures/f3_conditional_ki.png` |
+| 8 | `scripts/11_movies.py` | `figures/movies/<case>.mp4` |
 | — | `ki_bve.ipynb` (written by `scripts/build_ki_bve_notebook.py`) — the ocean notebook's layout for the conditional KI: flows, model code, minibatches, training (or loading the DDP model), evaluation, examples | — |
 
 ```mermaid
@@ -33,6 +34,7 @@ graph TD
     M --> E["09_eval_context.py: patches 18-19 of training flows + unseen flows"]
     D --> E
     E --> F["10_figures_context.py -> figures/f3_conditional_ki.png"]
+    M --> MV["11_movies.py -> figures/movies/case.mp4"]
     M --> N["ki_bve.ipynb"]
 ```
 
@@ -86,6 +88,21 @@ Medians over 128 target parcels per patch, anchors 48/72/96 h, 80 patches per ca
   of the training flows and 30–67 % below straight motion at every horizon.
 - Backcasts are slightly better than forecasts in every case.
 - At 24 h the errors are 23–36 % of the distance travelled (1480–2080 km); at 6 h, 6–8 %.
+
+## Test movies
+
+`scripts/11_movies.py` (`FFMPEG` = path of an ffmpeg with libx264) writes one movie per test case to
+`figures/movies/`: forecast (left) and backcast (right) of 12 target parcels of one patch (window 0, anchor 72 h),
+over the evolving flow — relative vorticity (colour), streamfunction (contours; from the vector spherical-harmonic
+potential of the wind, `scripts/flowfields.py`) and wind (arrows). Grey: the other parcels' observed tracks (the
+model's input); blue: truth; red dashed: the conditional KI.
+
+| case | movie |
+| --- | --- |
+| training flows, unseen patch | [`training_flows_unseen_patch.mp4`](figures/movies/training_flows_unseen_patch.mp4) |
+| seen jet, new wavenumber | [`seen_jet_new_wavenumber.mp4`](figures/movies/seen_jet_new_wavenumber.mp4) |
+| new jet and wavenumber, inside the range | [`new_jet_and_wavenumber_inside_the_training_range.mp4`](figures/movies/new_jet_and_wavenumber_inside_the_training_range.mp4) |
+| new jet and wavenumber, outside the range | [`new_jet_and_wavenumber_outside_the_training_range.mp4`](figures/movies/new_jet_and_wavenumber_outside_the_training_range.mp4) |
 
 ## Why the model reads the other parcels
 
