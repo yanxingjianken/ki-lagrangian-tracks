@@ -20,6 +20,7 @@ p.add_argument("--run", default="stirred_jet", help="data/bve_<run>.nc")
 p.add_argument("--source", default="lagranto", help="lagranto, or heun for the cross-check tracks")
 p.add_argument("--fractions", type=float, nargs=3, default=[0.7, 0.1, 0.2])
 p.add_argument("--trim-h", type=float, default=0.0, help="drop this much at both ends")
+p.add_argument("--every-h", type=float, default=None, help="store every this many hours (default: every track time)")
 p.add_argument("--seed", type=int, default=0)
 a = p.parse_args()
 
@@ -32,6 +33,8 @@ lon_u = np.rad2deg(np.unwrap(np.deg2rad(lon[:, ok]), axis=0))
 x = lonlat_to_stereo(lon_u, lat[:, ok])
 spl = CubicSpline(time_h, x, axis=0)
 keep = (time_h >= time_h[0] + a.trim_h) & (time_h <= time_h[-1] - a.trim_h)
+if a.every_h:
+    keep &= np.isclose(np.mod(time_h - time_h[0] + 1e-6, a.every_h), 0.0, atol=1e-4)
 t = time_h[keep]
 patch = patch[ok]
 rng = np.random.default_rng(a.seed)

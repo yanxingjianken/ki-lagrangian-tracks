@@ -1,0 +1,18 @@
+{
+  "comment": "Relaxation jet u0 [m/s] at lat0 [deg N], e-folding width [deg]; stirring at zonal wavenumber m, centred on the jet latitude. split: train (10 combinations of 5 jets x m 4, 8) or test (unseen combinations).",
+  "flows": [
+    {"name": "j1_m4", "u0": 25, "lat0": 35, "width": 8,  "m": 4, "split": "train"},
+    {"name": "j1_m8", "u0": 25, "lat0": 35, "width": 8,  "m": 8, "split": "train"},
+    {"name": "j2_m4", "u0": 30, "lat0": 45, "width": 10, "m": 4, "split": "train"},
+    {"name": "j2_m8", "u0": 30, "lat0": 45, "width": 10, "m": 8, "split": "train"},
+    {"name": "j3_m4", "u0": 35, "lat0": 55, "width": 8,  "m": 4, "split": "train"},
+    {"name": "j3_m8", "u0": 35, "lat0": 55, "width": 8,  "m": 8, "split": "train"},
+    {"name": "j4_m4", "u0": 40, "lat0": 40, "width": 6,  "m": 4, "split": "train"},
+    {"name": "j4_m8", "u0": 40, "lat0": 40, "width": 6,  "m": 8, "split": "train"},
+    {"name": "j5_m4", "u0": 20, "lat0": 50, "width": 14, "m": 4, "split": "train"},
+    {"name": "j5_m8", "u0": 20, "lat0": 50, "width": 14, "m": 8, "split": "train"},
+    {"name": "o1_j2_m6", "u0": 30, "lat0": 45, "width": 10, "m": 6,  "split": "test", "label": "seen jet, new wavenumber"},
+    {"name": "o2_jnew_m6", "u0": 30, "lat0": 50, "width": 10, "m": 6, "split": "test", "label": "new jet and wavenumber, inside the training range"},
+    {"name": "o3_jout_m10", "u0": 45, "lat0": 60, "width": 6, "m": 10, "split": "test", "label": "new jet and wavenumber, outside the training range"}
+  ]
+}

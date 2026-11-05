@@ -24,6 +24,8 @@ p.add_argument("--run", default="stirred_jet", help="data/bve_<run>.nc")
 p.add_argument("--n-patches", type=int, default=8)
 p.add_argument("--n-per", type=int, default=1000)
 p.add_argument("--radius-km", type=float, default=300.0)
+p.add_argument("--min-sep-km", type=float, default=2000.0)
+p.add_argument("--lat-range", type=float, nargs=2, default=[35.0, 60.0])
 p.add_argument("--step-min", type=int, default=1, help="1 min: parcels near the pole stay accurate")
 p.add_argument("--out-min", type=int, default=10)
 a = p.parse_args()
@@ -34,7 +36,7 @@ info = dict(line.split(" ", 1) for line in (wdir / "window.txt").read_text().spl
 pfiles = sorted(wdir.glob("P*_*"))
 first, last = pfiles[0].name[1:], pfiles[-1].name[1:]
 assert first == np.datetime_as_string(np.datetime64(info["first"]), unit="h").replace("-", "").replace("T", "_")
-lat, lon, pid, centres = seed_patches(a.n_patches, a.n_per, a.radius_km, seed=a.window)
+lat, lon, pid, centres = seed_patches(a.n_patches, a.n_per, a.radius_km, tuple(a.lat_range), a.min_sep_km, seed=a.window)
 startfile(wdir / "startf", lon, lat, 500.0, lon_min=0.0)
 env = dict(os.environ, LAGRANTO=str(LAGRANTO), PATH=f"{LAGRANTO / 'bin'}:{os.environ['PATH']}")
 cmd = ["caltra", first, last, "startf", "traj.3", "-2d", "-i", "1", "-t", str(a.step_min), "-o", str(a.out_min)]

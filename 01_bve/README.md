@@ -1,93 +1,101 @@
-# 01_bve — filling and forecasting parcel tracks in a stirred barotropic jet
+# 01_bve — conditional forecasts and backcasts of parcel tracks in stirred barotropic jets
 
-Two-dimensional test of trajectory inference with Kinematic Interpolants (KI). Air parcels are released in compact
-patches, as in the ocean data of the KI paper, into a statistically steady, stochastically stirred midlatitude jet
-of the barotropic vorticity equation on the sphere. LAGRANTO computes their tracks. For each patch, one KI model is
-trained on 70 % of the parcels over the window 24–120 h after release; the 20 % test parcels are never seen in
-training. Three abilities are scored on the test parcels: filling a randomly removed segment of 6–48 h inside the
-window, forecasting 6–24 h after it, and backcasting 6–24 h before it. The same models are then applied to parcels
-released at the same places and time in flows they never saw: another region of the training flow, a new random
-stirring of the same jet, and a different jet with a new stirring.
+Two-dimensional test of trajectory inference with a conditional Kinematic Interpolant (KI). Air parcels are
+released in compact patches (1000 parcels in a 300-km disk, as in the ocean data of the KI paper) into 13
+statistically steady, stochastically stirred jets of the barotropic vorticity equation on the sphere; LAGRANTO
+computes their tracks. A context transformer predicts the acceleration and velocity score of the paper,
+a(t, x, v | context), where the context is the observed tracks of the other parcels of the patch. Two tasks:
+
+- **conditional forecast**: the patch was observed for the 48 h before the anchor time; every parcel is unobserved
+  after it; the target parcels (not in the context) are integrated forward 6–24 h from their anchor state;
+- **conditional backcast**: the patch was observed for the 48 h after the anchor time; the targets are integrated
+  backward 6–24 h.
+
+The model is trained on 8e5 tracks from 10 flows (5 jets × stirred zonal wavenumbers 4 and 8) and tested on
+unseen patches of those flows and on 3 flows it never saw.
 
 ## Pipeline
 
 | Step | Script | Output |
 | --- | --- | --- |
-| 1 | `scripts/01_bve_run.py` — BVE (torch-harmonics, T85, dt 600 s) with relaxation to a jet and red-noise vorticity stirring (l = 8–14, 45 ± 12°N); 60-day spin-up. Training flow: 30 m/s jet at 45°N, 10° wide, seed 1; unseen flows: same jet with seed 2 (`--seed 2`), and a 40 m/s jet at 40°N, 8° wide, seed 3 | `data/bve_stirred_jet.nc` (30 days), `data/bve_seed2.nc`, `data/bve_jet40n.nc` (9 days): hourly u, v, ζ on a 1° grid |
-| 2 | `scripts/02_lagranto_input.py [--run R]` — 6.5 days of the hourly wind from day 2 as LAGRANTO P files | `data/lagranto/w0[_R]/P*` |
-| 3 | `scripts/03_tracks.py [--run R]` — 8 patches × 1000 parcels in 300-km disks (centres uniform in area, 35–60°N, ≥ 2000 km apart; the same in every run), `caltra -2d`, 1-min step, 10-min output, 156 h | `data/lagranto[_R]_w0.npz` |
-| 4 | `scripts/04_dataset.py [--run R]` — polar-stereographic positions, spline velocity and acceleration, hours after release, split by parcel 70/10/20 within each patch | `data/tracks_lagranto[_R]_w0.npz` |
-| 5 | `scripts/05_train.py` (all patches: `scripts/run_training.sh`, patches spread over GPUs) — acceleration and score networks per patch on 24–120 h after release; DDP-ready (`torchrun`) | `outputs/models/*.pt`, live panels in `outputs/logs/` |
-| 6 | `scripts/06_eval.py` — fill, forecast, backcast on the test parcels, in the training flow and in the unseen flows | `outputs/eval/tracks_lagranto_w0_abilities.csv` |
-| 7 | `scripts/07_figures.py` | `figures/f1_abilities.png`, `figures/f2_unseen_flows.png` |
-| — | `ki_bve.ipynb` (written by `scripts/build_ki_bve_notebook.py`) — the ocean notebook's layout on these data, self-contained | — |
-
-Design step: `scripts/design/tune_stirring.py` chose the jet and stirring so that parcels move at about 23 m/s and
-turn within about 20 h (the LAGRANTO patches: median speed 27.5 m/s, turning time 21.6 h) (`outputs/design/tune_stirring*.json`); `scripts/design/heun_tracks.py` advects the same patches
-with an independent integrator for a cross-check of the LAGRANTO tracks.
+| 1 | `scripts/01_bve_run.py --flows configs/flows.json` — 13 BVE runs in one GPU batch (torch-harmonics, T85, dt 600 s): relaxation to a jet, AR(1) vorticity stirring at one zonal wavenumber centred on the jet latitude, 60-day spin-up | `data/bve_<flow>.nc`: hourly u, v, ζ on a 1° grid, 30 days |
+| 2–4 | `scripts/run_tracks.sh` — per flow and window (start days 2, 9, 16, 23): `02_lagranto_input.py` (P files), `03_tracks.py` (20 patches × 1000 parcels, centres 30–65°N ≥ 1500 km apart, `caltra -2d`, 1-min step), `04_dataset.py --every-h 1` (polar-stereographic positions, spline velocity and acceleration) | `data/tracks_lagranto_<flow>_w<k>.npz` (157 hourly times × 20 000 parcels) |
+| 5 | `scripts/08_train_context.py` (`scripts/run_context.sh 1,2`: `torchrun` DDP) — training patches 0–15 of the training flows, validation patches 16–17 | `outputs/models/context_ki.pt`, live panels in `outputs/logs/` |
+| 6 | `scripts/09_eval_context.py` — unseen patches 18–19 of the training flows and all patches of the unseen flows; anchors 48, 72, 96 h after release; 128 target parcels not in the context | `outputs/eval/context_ki.csv.gz` |
+| 7 | `scripts/10_figures_context.py` | `figures/f3_conditional_ki.png` |
+| — | `ki_bve.ipynb` (written by `scripts/build_ki_bve_notebook.py`) — the ocean notebook's layout for the conditional KI: flows, model code, minibatches, training (or loading the DDP model), evaluation, examples | — |
 
 ```mermaid
 graph TD
-    A["01_bve_run.py: stirred-jet BVE"] --> B["data/bve_stirred_jet.nc (hourly u, v, zeta)"]
-    B --> C["02_lagranto_input.py"] --> D["data/lagranto/w0/P files"]
-    D --> E["03_tracks.py: patches + caltra -2d"] --> F["data/lagranto_w0.npz"]
-    F --> G["04_dataset.py: positions, velocity, acceleration, split"] --> H["data/tracks_lagranto_w0.npz"]
-    H --> I["05_train.py x 8 patches, window 24-120 h"] --> J["outputs/models"]
-    A2["01_bve_run.py --seed 2 / --u0 40 --lat0 40 --width 8 --seed 3"] --> B2["data/bve_seed2.nc, bve_jet40n.nc"]
-    B2 --> C2["02-04 --run seed2 / jet40n"] --> H2["data/tracks_lagranto_{seed2,jet40n}_w0.npz"]
-    J --> K["06_eval.py: fill, forecast, backcast"]
-    H2 --> K
-    K --> L["outputs/eval/*_abilities.csv"] --> M["07_figures.py -> figures/f1, f2"]
-    H --> N["ki_bve.ipynb"]
-    J --> N
+    C["configs/flows.json: 10 training + 3 unseen jet x wavenumber"] --> R["01_bve_run.py --flows"] --> B["data/bve_flow.nc (13 x 30 d hourly u, v, zeta)"]
+    B --> T["run_tracks.sh: 02 P files, 03 caltra -2d, 04 hourly dataset"] --> D["data/tracks_lagranto_flow_wk.npz (13 flows x 4 windows x 20 patches x 1000)"]
+    D --> TR["08_train_context.py, DDP on GPUs 1+2: patches 0-15 of training flows"] --> M["outputs/models/context_ki.pt"]
+    M --> E["09_eval_context.py: patches 18-19 of training flows + unseen flows"]
+    D --> E
+    E --> F["10_figures_context.py -> figures/f3_conditional_ki.png"]
+    M --> N["ki_bve.ipynb"]
 ```
+
+## Flows
+
+| flow | split | relaxation jet | stirred m | realized jet (30-day mean) |
+| --- | --- | --- | --- | --- |
+| `j1_m4` | train | 25 m/s, 35°N, 8° | 4 | 39 m/s at 37°N |
+| `j1_m8` | train | 25 m/s, 35°N, 8° | 8 | 37 m/s at 34°N |
+| `j2_m4` | train | 30 m/s, 45°N, 10° | 4 | 48 m/s at 50°N |
+| `j2_m8` | train | 30 m/s, 45°N, 10° | 8 | 40 m/s at 45°N |
+| `j3_m4` | train | 35 m/s, 55°N, 8° | 4 | 46 m/s at 58°N |
+| `j3_m8` | train | 35 m/s, 55°N, 8° | 8 | 46 m/s at 53°N |
+| `j4_m4` | train | 40 m/s, 40°N, 6° | 4 | 40 m/s at 48°N |
+| `j4_m8` | train | 40 m/s, 40°N, 6° | 8 | 45 m/s at 41°N |
+| `j5_m4` | train | 20 m/s, 50°N, 14° | 4 | 42 m/s at 57°N |
+| `j5_m8` | train | 20 m/s, 50°N, 14° | 8 | 41 m/s at 49°N |
+| `o1_j2_m6` | unseen: seen jet, new wavenumber | 30 m/s, 45°N, 10° | 6 | 44 m/s at 48°N |
+| `o2_jnew_m6` | unseen: new jet and wavenumber, inside the training range | 30 m/s, 50°N, 10° | 6 | 39 m/s at 52°N |
+| `o3_jout_m10` | unseen: new jet and wavenumber, outside the training range | 45 m/s, 60°N, 6° | 10 | 35 m/s at 58°N |
+
+The eddies move the realized jets away from their relaxation targets; `o3`'s jet ends at 58°N, inside the
+latitude range of the training jets, so it is "outside" through its wavenumber (10) and its weaker jet.
 
 ## The model
 
-`scripts/ki_tracks.py`. The paper's two ReLU MLPs `Field(t, x, v)` (acceleration and velocity score) with
-polynomial and Fourier features of time; here width 512, depth 4, Fourier periods down to 6 h (the ocean runs used
-256 × 2 and periods down to a quarter window). Each training sample is a training parcel at a random time, displaced
-by the paper's rotating Gaussian noise (time scale 6 h); its target is the parcel's true acceleration plus the
-noise's restoring term. A gap is filled by integrating forward from its start and backward from its end and
-blending the two; a forecast integrates forward from the last known state.
+`scripts/ctx_model.py`, `scripts/ctx_data.py`. Context tokens: 128 parcels of the patch every 3 h over the 48 h on
+the observed side, each token (time relative to the anchor, position relative to the patch centroid, sin latitude,
+velocity), with Fourier features. A Perceiver encoder (64 latents, 4 self-attention layers, width 256) compresses
+them; the query state (t, x, v) of a target parcel reads the latents through 2 cross-attention layers and returns
+the acceleration and the scaled velocity score. Training targets follow the paper: query states lie on and around
+the true tracks within 24 h on the unobserved side (rotating Gaussian noise, 5 km, time scale 6 h) and the target
+acceleration includes the noise's restoring term. AdamW, warm-up and cosine decay, EMA 0.999, 40 000 steps × 32
+samples per GPU on 2 GPUs (DDP; the same script runs on more GPUs or nodes through `torchrun`).
 
 ## Results
 
-Window 0 (release on day 2 of the record), 8 patches, 1600 test parcels; medians of the great-circle error (km), for
-`fill` averaged along the removed segment, for `forecast` and `backcast` at the end point. `no learning` = straight
-motion at the known velocities (from both ends for `fill`). Source: `outputs/eval/tracks_lagranto_w0_abilities.csv`.
+Medians over 128 target parcels per patch, anchors 48/72/96 h, 80 patches per case
+(`outputs/eval/context_ki.csv.gz`); `straight` = straight motion at the anchor velocity.
 
-![abilities](figures/f1_abilities.png)
+![conditional KI](figures/f3_conditional_ki.png)
 
-| ability | 6 h | 12 h | 24 h | 48 h | distance travelled at 24 h |
-| --- | --- | --- | --- | --- | --- |
-| fill (trained / no learning) | 0.5 / 8.1 | 0.6 / 29 | 1.5 / 105 | 4.5 / 371 | 2361 |
-| forecast | 22 / 62 | 127 / 210 | 585 / 683 | — | 1787 |
-| backcast | 22 / 90 | 162 / 317 | 802 / 1396 | — | 3336 |
+| case | forecast 6 / 12 / 24 h (km) | straight | backcast 6 / 12 / 24 h (km) | straight |
+| --- | --- | --- | --- | --- |
+| training flows, unseen patches | 29 / 120 / 454 | 69 / 259 / 907 | 26 / 102 / 381 | 68 / 262 / 929 |
+| seen jet, new wavenumber | 46 / 182 / 645 | 109 / 402 / 1383 | 37 / 142 / 507 | 111 / 426 / 1537 |
+| new jet and wavenumber, inside the range | 35 / 141 / 566 | 80 / 297 / 969 | 32 / 132 / 476 | 83 / 320 / 1122 |
+| new jet and wavenumber, outside the range | 34 / 138 / 542 | 61 / 227 / 789 | 30 / 117 / 419 | 62 / 238 / 850 |
 
-- Filling works because the other parcels of the patch have already shown the model the acceleration field at the
-  gap's times and places. Forecasting and backcasting leave the training window, where the time-dependent field
-  a(t, x, v) has never been seen; skill is useful for about 6–12 h and nearly gone by 24 h (vorticity e-folding time
-  of the flow: 17–21 h).
-- Backcasting behaves like forecasting (same model, integrated backward from the window start).
+- The model keeps most of its skill in flows it never saw: errors there are 10–60 % larger than on unseen patches
+  of the training flows and 30–67 % below straight motion at every horizon.
+- Backcasts are slightly better than forecasts in every case.
+- At 24 h the errors are 23–36 % of the distance travelled (1480–2080 km); at 6 h, 6–8 %.
 
-![unseen flows](figures/f2_unseen_flows.png)
+## Why the model reads the other parcels
 
-| 24-h error, trained / no learning | fill | forecast | backcast |
-| --- | --- | --- | --- |
-| own patch | 1.5 / 105 | 585 / 683 | 802 / 1396 |
-| same flow, other region | 173 / 108 | 1058 / 683 | 2091 / 1396 |
-| new perturbation (seed 2) | 207 / 125 | 1932 / 1074 | 1353 / 1767 |
-| new jet and perturbation | 219 / 153 | 1517 / 1158 | 1679 / 2023 |
-
-- A per-patch model does not transfer: in another region or another flow its gap filling is worse than straight
-  motion. Its inputs (t, x, v) carry no information about the flow, so the field it learned belongs to one region of
-  one realization.
-- Over the evaluation window the "new jet" run (relaxation target 40 m/s at 40°N, 8° wide) settled to a midlatitude
-  jet of 33.8 m/s at 47°N, close to the training flow (33.9 m/s at 47°N); it differs mainly in its subtropical
-  easterlies (−17 m/s) and its eddies. A test with a displaced jet needs a stronger contrast.
-- Training was stopped at 20 000 steps while the validation gap error was still falling (live panels in
-  `outputs/logs/`); the training loss itself sits on the floor set by the rotating-noise targets.
+A first version fitted one unconditional KI, a(t, x, v), per patch (the ocean-paper set-up; one stirred flow,
+8 patches, window 24–120 h after release). It filled gaps in the training window almost perfectly (24-h gaps: 1.5 km)
+because the other parcels had already shown it the field at those times, but its 24-h forecasts and backcasts were
+only slightly better than straight motion (585 and 802 km against 683 and 1396 km), and on another region of the
+same flow, a new stirring, or a new jet, its gap filling was worse than straight motion (173–219 km against
+108–153 km): its inputs carry no information about which flow it is in. The scripts of that version are
+`05_train.py`, `06_eval.py`, `07_figures.py` (figures `f1_abilities.png`, `f2_unseen_flows.png`).
 
 ## Tests
 

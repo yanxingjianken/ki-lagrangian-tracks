@@ -16,13 +16,14 @@ from lagranto_io import write_pfiles  # noqa: E402
 p = argparse.ArgumentParser()
 p.add_argument("--window", type=int, default=0)
 p.add_argument("--run", default="stirred_jet", help="data/bve_<run>.nc")
-p.add_argument("--start-day", type=float, default=2.0)
+p.add_argument("--start-day", type=float, default=None, help="default: 2 + 7 * window")
 p.add_argument("--days", type=float, default=6.5)
 a = p.parse_args()
 
 ds = xr.open_dataset(ROOT / f"data/bve_{a.run}.nc")
 suffix = "" if a.run == "stirred_jet" else f"_{a.run}"
-h0, nh = int(round(a.start_day * 24)), int(round(a.days * 24))
+start_day = 2.0 + 7.0 * a.window if a.start_day is None else a.start_day
+h0, nh = int(round(start_day * 24)), int(round(a.days * 24))
 times = ds.time.values[h0:h0 + nh + 1]
 assert len(times) == nh + 1, f"record has {ds.sizes['time']} hours, window needs {h0 + nh + 1}"
 sub = ds.isel(time=slice(h0, h0 + nh + 1))

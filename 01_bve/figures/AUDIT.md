@@ -11,3 +11,9 @@
   the data; legend clipped → wider figure.
 - 2026-11-05 round 2: PASS. Every title number matches the bars. Suggestion adopted: "does not transfer its gap
   filling" (backcasts are mixed).
+
+## f3_conditional_ki.png — intended message: the conditional KI keeps most of its skill in flows it never saw
+- 2026-11-05 round 1: PASS. Reader: "in every flow category and at every horizon the conditional KI error is well
+  below straight motion, by roughly 40-60 % at 24 h, and it holds in unseen flows"; title numbers checked against the
+  lines. Note: "KI" undefined -> legend now says "conditional Kinematic Interpolant (KI)". Earlier drafts had a
+  duplicated legend and a clipped title (fixed before the audit).
