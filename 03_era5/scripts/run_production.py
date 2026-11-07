@@ -1,9 +1,9 @@
 """Stream ERA5 into LAGRANTO tracks: download -> P files -> caltra -> dataset -> delete, under a disk budget.
 
-Hours are downloaded in time order by a pool of worker processes (scripts/era5_pfiles.py), at most --budget-gb of P
-files ahead of the earliest unfinished release. A release is tracked (11_tracks.py, then 12_dataset.py) as soon as
-the 157 P files of its window exist, with at most --max-releases at a time; P files older than the earliest
-unfinished release are deleted. Finished releases (data/tracks/tracks_<release>.npz) are skipped, so a stopped run
+Hours are downloaded in time order by a pool of worker processes (scripts/era5_pfiles.py) while the P files on disk
+stay under --budget-gb (the oldest needed hours come first, so the earliest unfinished release fills first). A
+release is tracked (11_tracks.py, then 12_dataset.py) as soon as the 157 P files of its window exist, with at most
+--max-releases at a time; P files no unfinished release needs are deleted. Finished releases (data/tracks/tracks_<release>.npz) are skipped, so a stopped run
 resumes where it was. A download that runs longer than --hang-min (the storage client has no timeout of its own)
 restarts the worker pool and requeues the unfinished hours. Progress: outputs/logs/production/status.json and one
 log per release.
@@ -94,10 +94,11 @@ if __name__ == "__main__":
     restarts = 0
     mb_total, t_start = 0.0, time.time()
     while todo:
-        earliest = min(start[r["name"]] for r in todo)
-        while queue and len(futures) < 2 * a.workers and queue[0] < earliest + budget_h * H:
+        n_disk = sum(1 for f in ep.PDIR.glob("P*_*") if not f.name.endswith(".part"))
+        while queue and len(futures) < 2 * a.workers and n_disk + len(futures) < budget_h:
             t = queue.pop(0)
-            futures[t] = pool.submit(ep.write_hour, str(t))
+            if not ep.pfile_path(t).exists():  # hours already on disk need no worker
+                futures[t] = pool.submit(ep.write_hour, str(t))
         now = time.time()
         for t, fu in list(futures.items()):
             if fu.running() and t not in started:
