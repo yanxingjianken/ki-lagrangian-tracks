@@ -4,7 +4,9 @@ Hours are downloaded in time order by a pool of worker processes (scripts/era5_p
 files ahead of the earliest unfinished release. A release is tracked (11_tracks.py, then 12_dataset.py) as soon as
 the 157 P files of its window exist, with at most --max-releases at a time; P files older than the earliest
 unfinished release are deleted. Finished releases (data/tracks/tracks_<release>.npz) are skipped, so a stopped run
-resumes where it was. Progress: outputs/logs/production/status.json and one log per release.
+resumes where it was. A download that runs longer than --hang-min (the storage client has no timeout of its own)
+restarts the worker pool and requeues the unfinished hours. Progress: outputs/logs/production/status.json and one
+log per release.
 
 Run detached, with the environment's python (parallel `micromamba run` calls block each other), e.g.
 
@@ -38,6 +40,7 @@ p.add_argument("--workers", type=int, default=6)
 p.add_argument("--max-releases", type=int, default=3)
 p.add_argument("--jobs", type=int, default=8, help="caltra runs per release")
 p.add_argument("--budget-gb", type=float, default=400.0)
+p.add_argument("--hang-min", type=float, default=10.0, help="restart the download workers if an hour takes longer")
 a = p.parse_args()
 
 H = np.timedelta64(1, "h")
@@ -84,18 +87,46 @@ if __name__ == "__main__":
     clean(todo)
     queue = list(hours_needed(todo))
     print(f"{len(rels)} releases selected, {len(todo)} to do, {len(queue)} hours to have", flush=True)
-    pool = ProcessPoolExecutor(a.workers, mp_context=mp.get_context("spawn"), initializer=ep.open_store)
-    futures, running, failed = {}, {}, []
+    new_pool = lambda: ProcessPoolExecutor(a.workers, mp_context=mp.get_context("spawn"),  # noqa: E731
+                                           initializer=ep.open_store)
+    pool = new_pool()
+    futures, started, tries, running, failed = {}, {}, {}, {}, []
+    restarts = 0
     mb_total, t_start = 0.0, time.time()
     while todo:
         earliest = min(start[r["name"]] for r in todo)
         while queue and len(futures) < 2 * a.workers and queue[0] < earliest + budget_h * H:
             t = queue.pop(0)
             futures[t] = pool.submit(ep.write_hour, str(t))
+        now = time.time()
         for t, fu in list(futures.items()):
-            if fu.done():
-                mb_total += fu.result()[1]  # raises if the hour failed after its retries
-                del futures[t]
+            if fu.running() and t not in started:
+                started[t] = now
+            if not fu.done():
+                continue
+            del futures[t]
+            started.pop(t, None)
+            try:
+                mb_total += fu.result()[1]
+            except Exception as err:  # failed after its own retries: requeue a few times, then stop
+                tries[t] = tries.get(t, 0) + 1
+                if tries[t] > 3:
+                    raise
+                print(f"{t}: {type(err).__name__}: {err}; requeued", flush=True)
+                queue.insert(0, t)
+        stuck = [t for t, t0 in started.items() if now - t0 > 60 * a.hang_min]
+        if stuck:
+            restarts += 1
+            print(f"{time.strftime('%F %T')} download of {stuck[0]} running {(now - started[stuck[0]]) / 60:.0f} min: "
+                  f"restarting the {a.workers} workers (restart {restarts})", flush=True)
+            for proc in list(pool._processes.values()):
+                proc.kill()
+            pool.shutdown(wait=False, cancel_futures=True)
+            queue = sorted(set(queue) | set(futures))
+            futures, started = {}, {}
+            for f in ep.PDIR.glob("*.part"):
+                f.unlink()
+            pool = new_pool()
         have = {f.name for f in ep.PDIR.glob("P*_*") if not f.name.endswith(".part")}
         for r in todo:
             name = r["name"]
@@ -126,6 +157,7 @@ if __name__ == "__main__":
         status(releases_selected=len(rels), releases_done=len(rels) - len(pending()), running=sorted(running),
                failed=failed, pfiles_on_disk=n_p, pfiles_gb=round(n_p * P_GB, 1), hours_queued=len(queue),
                downloaded_gb=round(mb_total / 1e3, 1), download_mb_s=round(mb_total / max(elapsed, 1), 1),
+               worker_restarts=restarts,
                elapsed_h=round(elapsed / 3600, 2))
         if failed and not running and not futures and all(r["name"] in failed for r in todo):
             break
