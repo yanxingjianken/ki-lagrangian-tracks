@@ -65,8 +65,8 @@ parcel below the surface pressure.
 `scripts/ctx_model.py` is the `02_dinosaur` model (width 512 here), with per-axis scales from `configs/scales.json`:
 velocities (62.0, 60.7, 0.085) km/h and accelerations (5.37, 5.41, 0.125) km/h² for (x, y, z). Hourly vertical
 accelerations of parcels in 0.25° ERA5 winds are large and short-lived (median 0.02 km/h², 99th percentile
-0.65 km/h²); scaled like the horizontal ones' share of the motion they would make up almost all of the loss, so
-each axis is scaled by its own spread (each then contributes a comparable error when predicted as zero). `scripts/ctx_data.py` keeps only x, v, a in
+0.65 km/h²); with a scale of the size of their typical value they would make up almost all of the loss, so each
+axis is scaled by its own spread (each then contributes a comparable error when predicted as zero). `scripts/ctx_data.py` keeps only x, v, a in
 float32 on the GPU (sin latitude follows from x) and draws context and query parcels disjointly. Each rank loads
 only its shard of releases, so two A100s hold the 2.5e7 training tracks (about 71 GB each; the measured limit next to
 a training step is 1.38e7 tracks per GPU).
