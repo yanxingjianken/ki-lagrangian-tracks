@@ -32,6 +32,7 @@ used, and deleted.
 | 2 | `scripts/11_tracks.py` — seeds the patches (start pressure σ × bilinear PS), runs 8 caltra jobs of patch-ordered parcels (full 3-D, `-j`, 1-min step, 10-min output, wfactor 1 checked) | `data/lagranto/<release>.npz` (transient) |
 | 3 | `scripts/12_dataset.py` — Southern-Hemisphere patches mirrored to the north; polar-stereographic x, y and z = −7 km ln(p/1000 hPa); spline velocity and acceleration, hourly, float32 | `data/tracks/tracks_<release>.npz` |
 | 4 | `scripts/13_check_release.py` — tracks of two patches on a map and their pressure; kept/dropped parcels, displacement per level, parcels below the surface | `figures/check_<release>.png` |
+| 14 | `scripts/14_scales.py` — per-axis velocity and acceleration scales of the model: spread of the training tracks with the largest 0.5 % capped | `configs/scales.json` |
 | 20 | `scripts/20_train_context.py` (`torchrun`, DDP) — training set sharded by release across GPUs, float32 x, v, a on the GPUs | `outputs/models/context_ki_era5.pt`, live panels in `outputs/logs/` |
 | 21 | `scripts/21_eval_context.py` — unseen patches of the training releases, 2021, 2021 at unseen latitudes; anchors 48/72/96 h; horizontal (km) and vertical (hPa) errors against straight motion | `outputs/eval/context_ki_era5.csv.gz` |
 | 22 | `scripts/22_figures.py` | `figures/f1_conditional_ki_era5.png`, `figures/f2_by_level.png` |
@@ -61,7 +62,11 @@ parcel below the surface pressure.
 
 ## The model
 
-`scripts/ctx_model.py` is the `02_dinosaur` model (width 512 here). `scripts/ctx_data.py` keeps only x, v, a in
+`scripts/ctx_model.py` is the `02_dinosaur` model (width 512 here), with per-axis scales from `configs/scales.json`:
+velocities (62.0, 60.7, 0.085) km/h and accelerations (5.37, 5.41, 0.125) km/h² for (x, y, z). Hourly vertical
+accelerations of parcels in 0.25° ERA5 winds are large and short-lived (median 0.02 km/h², 99th percentile
+0.65 km/h²); scaled like the horizontal ones' share of the motion they would make up almost all of the loss, so
+each axis is scaled by its own spread (each then contributes a comparable error when predicted as zero). `scripts/ctx_data.py` keeps only x, v, a in
 float32 on the GPU (sin latitude follows from x) and draws context and query parcels disjointly. Each rank loads
 only its shard of releases, so two A100s hold the 2.5e7 training tracks (about 71 GB each; the measured limit next to
 a training step is 1.38e7 tracks per GPU).

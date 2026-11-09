@@ -19,7 +19,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ctx_data import context, load_patches, release_names, rollout  # noqa: E402
-from ctx_model import ContextKI  # noqa: E402
+from ctx_model import SCALES, ContextKI  # noqa: E402
 from geo import great_circle_km, stereo_to_lonlat  # noqa: E402
 
 H_KM = 7.0
@@ -36,6 +36,8 @@ a = p.parse_args()
 dev = "cuda"
 ck = torch.load(a.model, map_location=dev, weights_only=False)
 g = ck["args"]
+if ck.get("scales") != SCALES:
+    raise ValueError("the model was trained with other scales than configs/scales.json")
 model = ContextKI(d=g["d_model"]).to(dev).eval()
 model.load_state_dict(ck["state"])
 have = lambda split: [n for n in release_names(ROOT, split) if (ROOT / f"data/tracks/tracks_{n}.npz").exists()]  # noqa: E731

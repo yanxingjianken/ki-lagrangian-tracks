@@ -1,21 +1,25 @@
-# Copy of roger/02_dinosaur/scripts/ctx_model.py.
+# Adapted from roger/02_dinosaur/scripts/ctx_model.py (per-axis scales read from configs/scales.json).
 """Conditional kinematic interpolant in three dimensions: acceleration and velocity score of a parcel given the observed
 tracks of its patch.
 
 State: horizontal polar-stereographic position (x, y) and log-pressure height z = -H ln(p / 1000 hPa). Context tokens
 (one per observed parcel and time) are compressed by a Perceiver encoder; query states read the latents by
 cross-attention and return the acceleration (3) and the scaled velocity score (3). Inputs and outputs are normalized
-per axis (POS, VEL, ACC) relative to the anchor time and the patch centroid; time / 24 h.
+per axis (POS, VEL, ACC) relative to the anchor time and the patch centroid; time / 24 h. The scales are those of
+configs/scales.json (scripts/14_scales.py: spread of the ERA5 training tracks per axis).
 """
+import json
 import math
+from pathlib import Path
 
 import torch
 from torch import nn
 
-POS = (1000.0, 1000.0, 10.0)
-VEL = (100.0, 100.0, 0.05)
-ACC = (10.0, 10.0, 0.005)
-TIME_H = 24.0
+SCALES = json.loads((Path(__file__).resolve().parents[1] / "configs/scales.json").read_text())
+POS = tuple(SCALES["pos_km"])
+VEL = tuple(SCALES["vel_kmh"])
+ACC = tuple(SCALES["acc_kmh2"])
+TIME_H = float(SCALES["time_h"])
 N_FEAT = 8
 
 

@@ -1,0 +1,43 @@
+{
+ "pos_km": [
+  1000.0,
+  1000.0,
+  10.0
+ ],
+ "vel_kmh": [
+  62.02,
+  60.74,
+  0.08518
+ ],
+ "acc_kmh2": [
+  5.366,
+  5.411,
+  0.1245
+ ],
+ "time_h": 24.0,
+ "method": "standard deviation after capping the largest 0.5 % of each component; 8000 random parcels x 157 h from each release",
+ "releases": [
+  "tr000",
+  "tr024",
+  "tr049",
+  "tr073",
+  "tr097",
+  "tr122",
+  "tr146",
+  "tr170",
+  "tr195",
+  "tr219"
+ ],
+ "check": {
+  "zero_predictor_mse": [
+   1.136,
+   1.149,
+   1.902
+  ],
+  "fraction_beyond_30": [
+   7.96e-06,
+   7.88e-06,
+   0.000436
+  ]
+ }
+}

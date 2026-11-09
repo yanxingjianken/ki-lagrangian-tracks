@@ -24,7 +24,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ctx_data import context, load_patches, patch_ids, release_names, rollout, sample_batch  # noqa: E402
-from ctx_model import ContextKI  # noqa: E402
+from ctx_model import SCALES, ContextKI  # noqa: E402
 from geo import great_circle_km, stereo_to_lonlat  # noqa: E402
 from live_panels import context_png, loss_png  # noqa: E402
 
@@ -141,7 +141,8 @@ for step in range(1, a.steps + 1):
     hist["backcast_km"].append(bc)
     out, logs = ROOT / "outputs/models", ROOT / "outputs/logs"
     out.mkdir(parents=True, exist_ok=True)
-    ck = dict(state=ema.state_dict(), step=step, forecast_km=fc, backcast_km=bc, args=vars(a), world_size=world)
+    ck = dict(state=ema.state_dict(), step=step, forecast_km=fc, backcast_km=bc, args=vars(a), world_size=world,
+              scales=SCALES)
     for which in ["latest"] + (["best"] if score_km < best else []):
         path_ck = out / (f"{a.name}.pt" if which == "best" else f"{a.name}_latest.pt")
         torch.save(ck, path_ck.with_suffix(".tmp"))
