@@ -17,7 +17,7 @@ PYT="${PYT:-$HOME/.conda/envs/kinematic_interpolants/bin/python}"  # training, e
 LOGS="$ROOT/outputs/logs"
 mkdir -p "$LOGS/production"
 cd "$ROOT"
-export NUMPY_MADVISE_HUGEPAGE=0
+export NUMPY_MADVISE_HUGEPAGE=0 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 stamp() { echo "$(date '+%F %T') $*"; }
 production_alive() { pgrep -f "scripts/run_[p]roduction.py" > /dev/null; }
 pick_gpus() {  # pick_gpus <candidates> <n>: first n candidates with NEED_MB free (GPU 0 only without other users)

@@ -44,6 +44,7 @@ p.add_argument("--warmup", type=int, default=2000)
 p.add_argument("--ema", type=float, default=0.999)
 p.add_argument("--val-every", type=int, default=2000)
 p.add_argument("--val-patches", type=int, default=192)
+p.add_argument("--val-chunk", type=int, default=48, help="validation samples per rollout call")
 p.add_argument("--seed", type=int, default=0)
 p.add_argument("--name", default="context_ki_era5")
 a = p.parse_args()
@@ -92,7 +93,10 @@ if main:
 
 
 def validate(m):
-    path = rollout(m, vtok, vcen, vx0, vv0, vdir, a.horizon_h).cpu().numpy()
+    # in chunks: rank 0 also holds its training shard, so one rollout over all samples does not fit
+    c = a.val_chunk
+    path = torch.cat([rollout(m, vtok[i:i + c], vcen[i:i + c], vx0[i:i + c], vv0[i:i + c], vdir[i:i + c],
+                              a.horizon_h) for i in range(0, len(vdir), c)], dim=1).cpu().numpy()
     (lp, ap), (lt, at) = stereo_to_lonlat(path[-1][..., :2]), stereo_to_lonlat(vend[..., :2])
     err = great_circle_km(lp, ap, lt, at)
     dp = np.abs(1000.0 * (np.exp(-path[-1][..., 2] / H_KM) - np.exp(-vend[..., 2] / H_KM)))
