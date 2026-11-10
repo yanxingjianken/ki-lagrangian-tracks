@@ -1,17 +1,147 @@
 {
- "russia_2010": {"label": "Russia, summer 2010", "window": ["2010-07-22T00", "2010-08-13T18"],
-                 "region_lat": [40, 75], "region_lon": [330, 80],
-                 "basis": "ERA5 TempestExtremes catalogue block 881 (2010-07-22 03 UTC to 08-13 19 UTC); Z500 minus zonal mean up to 302 m near 60N 46E on 2010-08-06"},
- "atlantic_2019": {"label": "North Atlantic, summer 2019", "window": ["2019-07-21T18", "2019-08-05T06"],
-                   "region_lat": [50, 85], "region_lon": [260, 40],
-                   "basis": "ERA5 TempestExtremes catalogue block 1312 (2019-07-21 19 UTC to 08-05 08 UTC); Z500 minus zonal mean up to 348 m near 67N 17E on 2019-07-27, then near 73N 15W"},
- "pacific_nw_2021": {"label": "Pacific Northwest heat dome, 2021", "window": ["2021-06-25T00", "2021-07-03T00"],
-                     "region_lat": [35, 75], "region_lon": [170, 270],
-                     "basis": "Wikipedia heat-wave dates 2021-06-25 to 07-07; Z500 minus zonal mean above 200 m near 53N 120-130W from 06-25 to 07-03"},
- "california_2025": {"label": "California wildfires, January 2025", "window": ["2025-01-05T00", "2025-01-16T00"],
-                     "region_lat": [25, 65], "region_lon": [170, 270],
-                     "basis": "Wikipedia fire dates 2025-01-07 to 01-31 (Santa Ana windstorm 01-07 to 01-08); Z500 minus zonal mean above 300 m near 45N 130W from 01-07 to 01-16 (415 m on 01-09)"},
- "greenland_2026": {"label": "Greenland high, January 2026 winter storm", "window": ["2026-01-20T00", "2026-01-27T00"],
-                    "region_lat": [50, 85], "region_lon": [250, 40],
-                    "basis": "Wikipedia storm dates 2026-01-23 to 01-27; Z500 minus zonal mean 210-250 m near 74N 15W from 01-23 to 01-25"}
+ "russia_2010": {
+  "label": "Russia, summer 2010",
+  "window": [
+   "2010-07-22T00",
+   "2010-08-13T18"
+  ],
+  "region_lat": [
+   40,
+   75
+  ],
+  "region_lon": [
+   330,
+   80
+  ],
+  "basis": "ERA5 TempestExtremes catalogue block 881 (2010-07-22 03 UTC to 08-13 19 UTC); Z500 minus zonal mean up to 302 m near 60N 46E on 2010-08-06",
+  "studies": [
+   {
+    "authors": "Schneidereit et al.",
+    "year": 2012,
+    "title": "Large-Scale Flow and the Long-Lasting Blocking High over Russia: Summer 2010",
+    "journal": "Monthly Weather Review",
+    "doi": "10.1175/MWR-D-11-00249.1"
+   },
+   {
+    "authors": "Matsueda",
+    "year": 2011,
+    "title": "Predictability of Euro-Russian blocking in summer of 2010",
+    "journal": "Geophysical Research Letters",
+    "doi": "10.1029/2010GL046557"
+   }
+  ]
+ },
+ "atlantic_2019": {
+  "label": "North Atlantic, summer 2019",
+  "window": [
+   "2019-07-21T18",
+   "2019-08-05T06"
+  ],
+  "region_lat": [
+   50,
+   85
+  ],
+  "region_lon": [
+   260,
+   40
+  ],
+  "basis": "ERA5 TempestExtremes catalogue block 1312 (2019-07-21 19 UTC to 08-05 08 UTC); Z500 minus zonal mean up to 348 m near 67N 17E on 2019-07-27, then near 73N 15W",
+  "studies": [
+   {
+    "authors": "Cullather et al.",
+    "year": 2020,
+    "title": "Anomalous Circulation in July 2019 Resulting in Mass Loss on the Greenland Ice Sheet",
+    "journal": "Geophysical Research Letters",
+    "doi": "10.1029/2020GL087263"
+   },
+   {
+    "authors": "Sousa et al.",
+    "year": 2020,
+    "title": "Distinct influences of large-scale circulation and regional feedbacks in two exceptional 2019 European heatwaves",
+    "journal": "Communications Earth & Environment",
+    "doi": "10.1038/s43247-020-00048-9"
+   }
+  ]
+ },
+ "pacific_nw_2021": {
+  "label": "Pacific Northwest heat dome, 2021",
+  "window": [
+   "2021-06-25T00",
+   "2021-07-03T00"
+  ],
+  "region_lat": [
+   35,
+   75
+  ],
+  "region_lon": [
+   170,
+   270
+  ],
+  "basis": "Wikipedia heat-wave dates 2021-06-25 to 07-07; Z500 minus zonal mean above 200 m near 53N 120-130W from 06-25 to 07-03",
+  "studies": [
+   {
+    "authors": "Neal et al.",
+    "year": 2022,
+    "title": "The 2021 Pacific Northwest Heat Wave and Associated Blocking: Meteorology and the Role of an Upstream Cyclone as a Diabatic Source of Wave Activity",
+    "journal": "Geophysical Research Letters",
+    "doi": "10.1029/2021GL097699"
+   },
+   {
+    "authors": "Oertel et al.",
+    "year": 2023,
+    "title": "Everything Hits at Once: How Remote Rainfall Matters for the Prediction of the 2021 North American Heat Wave",
+    "journal": "Geophysical Research Letters",
+    "doi": "10.1029/2022GL100958"
+   }
+  ]
+ },
+ "california_2025": {
+  "label": "California wildfires, January 2025",
+  "window": [
+   "2025-01-05T00",
+   "2025-01-16T00"
+  ],
+  "region_lat": [
+   25,
+   65
+  ],
+  "region_lon": [
+   170,
+   270
+  ],
+  "basis": "Wikipedia fire dates 2025-01-07 to 01-31 (Santa Ana windstorm 01-07 to 01-08); Z500 minus zonal mean above 300 m near 45N 130W from 01-07 to 01-16 (415 m on 01-09)",
+  "studies": [
+   {
+    "authors": "Mass et al.",
+    "year": 2026,
+    "title": "The Meteorology of the January 2025 Los Angeles Wildfires",
+    "journal": "Weather and Forecasting",
+    "doi": "10.1175/WAF-D-25-0164.1"
+   },
+   {
+    "authors": "Guirguis et al.",
+    "year": 2025,
+    "title": "Compound atmospheric drivers of the catastrophic 2025 Los Angeles urban firestorm",
+    "journal": "npj Natural Hazards",
+    "doi": "10.1038/s44304-025-00155-7"
+   }
+  ]
+ },
+ "greenland_2026": {
+  "label": "Greenland high, January 2026 winter storm",
+  "window": [
+   "2026-01-20T00",
+   "2026-01-27T00"
+  ],
+  "region_lat": [
+   50,
+   85
+  ],
+  "region_lon": [
+   250,
+   40
+  ],
+  "basis": "Wikipedia storm dates 2026-01-23 to 01-27; Z500 minus zonal mean 210-250 m near 74N 15W from 01-23 to 01-25",
+  "studies": []
+ }
 }

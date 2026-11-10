@@ -58,8 +58,11 @@ if __name__ == "__main__":
         tmax = str(np.datetime64(times[-1], "h") + np.timedelta64(108, "h"))
         events.append(dict(id=name, label=e["label"], region_lat=e["region_lat"], region_lon=e["region_lon"],
                            sigma=idx["sigma"], tmin=tmin, tmax=tmax))
+        studies = "<br>".join(
+            f'<a href="https://doi.org/{q["doi"]}" title="{html.escape(q["title"])}">{html.escape(q["authors"])} '
+            f'({q["year"]})</a>, <i>{html.escape(q["journal"])}</i>' for q in e["studies"]) or "no peer-reviewed study yet"
         rows.append(f"<tr><td>{html.escape(e['label'])}</td><td>{tmin[:10]} {tmin[11:13]} to {tmax[:10]} {tmax[11:13]}</td>"
-                    f"<td>{html.escape(e['basis'])}</td></tr>")
+                    f"<td>{html.escape(e['basis'])}</td><td>{studies}</td></tr>")
     sig = sorted(levels, reverse=True)                                             # surface first
     words = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
     and_list = lambda xs: ", ".join(xs[:-1]) + " and " + xs[-1]                    # noqa: E731

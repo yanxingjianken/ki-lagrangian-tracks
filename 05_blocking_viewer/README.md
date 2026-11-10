@@ -20,7 +20,7 @@ page uses is public on Hugging Face and runs in the visitor's browser; no server
 
 | Step | Script | Output |
 | --- | --- | --- |
-| 1 | `scripts/01_events.py` — 500-hPa height and its departure from the zonal mean every 6 h over a search area per event (`configs/events_search.json`); maps checked by eye; windows and regions in `configs/events.json` | `figures/events_<event>.png` |
+| 1 | `scripts/01_events.py` — 500-hPa height and its departure from the zonal mean every 6 h over a search area per event (`configs/events_search.json`); maps checked by eye; windows and regions in `configs/events.json`, which also lists one or two peer-reviewed studies of each event (blocking studies first; DOIs checked against Crossref) for the page | `figures/events_<event>.png` |
 | 2 | `scripts/02_releases.py` — releases every 12 h from 4 days before each window, patch centres ~1000 km apart over the region and 40° upstream, six start levels in two releases per time (sigma 0.38 / 0.285 / 0.20, and `_lower` 0.967 / 0.85 / 0.477), each with its own seed; 480 parcels in 300-km disks | `configs/releases.json` |
 | 3 | `scripts/run_production.py` with `era5_pfiles.py`, `11_tracks.py`, `12_dataset.py` (copies of the `03_era5` scripts) — ERA5 0.25° hourly → P files → caltra → hourly tracks; P files deleted after use | `data/tracks/` |
 | 4 | `scripts/03_package.py` — per event: positions and velocities of all parcels every 3 h (float16, memory-mappable), patch index, 500-hPa maps | `pkg/<event>/` → Hugging Face dataset `yanxingjianken/blocking-tracks` |
