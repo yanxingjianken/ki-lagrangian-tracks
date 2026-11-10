@@ -1,7 +1,7 @@
-# Adapted from roger/03_era5/scripts/11_tracks.py (patch centres of the event releases, 3 start levels).
+# Adapted from roger/03_era5/scripts/11_tracks.py (patch centres, start levels and seed of each event release).
 """Seed the parcel patches of one event release and compute their 3-D tracks with LAGRANTO caltra.
 
-Per start level (sigma x local surface pressure, configs/releases.json) and patch centre of the release: 480 parcels
+Per start level of the release (sigma x local surface pressure, configs/releases.json) and patch centre: 480 parcels
 uniform in a 300-km disk. Parcels are ordered by level and patch and split into --jobs caltra runs, each in its own
 directory under data/lagranto/<release>/ with links to the P files of the 157-h window. caltra: full 3-D, -j, 1-min
 step, 10-min output, vertical scaling factor checked = 1. Writes data/lagranto/<release>.npz (time_h, lon, lat, p,
@@ -50,9 +50,9 @@ lon_g = np.linspace(box[0], box[1], ps0.shape[1])
 lat_g = np.linspace(box[2], box[3], ps0.shape[0])
 ps_at = RegularGridInterpolator((lat_g, lon_g), ps0)
 
-rng = np.random.default_rng(1000 * rel["index"] + sum(map(ord, rel["event"])))
+rng = np.random.default_rng(rel["seed"])
 lat, lon, pres, lev, pid, cen = [], [], [], [], [], []
-for k, sigma in enumerate(cfg["sigma"]):
+for k, sigma in enumerate(rel["sigma"]):
     for q, (clat, clon) in enumerate(rel["centres"]):
         r = cfg["radius_km"] * np.sqrt(rng.uniform(0.0, 1.0, cfg["n_per"]))
         la, lo = destination(clat, clon, rng.uniform(0.0, 2 * np.pi, cfg["n_per"]), r)
@@ -94,7 +94,7 @@ assert all(np.array_equal(q["time"], parts[0]["time"]) for q in parts)
 out = {k: np.concatenate([q[k] for q in parts], axis=1).astype(np.float32) for k in ("lon", "lat", "p")}
 assert out["lon"].shape[1] == lat.size
 np.savez(ROOT / f"data/lagranto/{a.release}.npz", time_h=time_h, **out, level=lev.astype(np.int16),
-         patch=pid.astype(np.int16), centres=cen, sigma=np.asarray(cfg["sigma"]), release_time=str(t0))
+         patch=pid.astype(np.int16), centres=cen, sigma=np.asarray(rel["sigma"]), release_time=str(t0))
 shutil.rmtree(wdir)
 bad = (~np.isfinite(out["lon"])).any(0)
 print(f"{a.release} {t0}: {lat.size} tracks in {a.jobs} caltra runs, {len(time_h)} times, {bad.sum()} incomplete")

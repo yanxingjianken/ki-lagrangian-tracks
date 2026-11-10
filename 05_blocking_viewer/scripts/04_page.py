@@ -17,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 R03, R04 = ROOT.parent / "03_era5", ROOT.parent / "04_rwb_forecast"
@@ -45,21 +46,41 @@ if __name__ == "__main__":
     d24 = df[(df.case == "2021, unseen year") & (df.horizon_h == 24)].groupby(["task", "model"])["error_km"].median()
     cal = pd.read_csv(R04 / "outputs/calibration.csv")
     c24 = cal[cal.horizon_h == 24].set_index("eps_rel")["median_err_km"]
-    events, rows, n_patches = [], [], 0
+    events, rows, n_patches, levels = [], [], 0, None
     ready = [n for n in ev if (ROOT / f"pkg/{n}/centroids.bin").exists()]     # events packaged so far
     for name, e in ((n, ev[n]) for n in ready):
         rs = [r for r in rel["releases"] if r["event"] == name]
         idx = json.loads((ROOT / f"pkg/{name}/index.json").read_text())
         n_patches += len(idx["patches"])
-        tmin = str(np.datetime64(rs[0]["time"], "h") + np.timedelta64(48, "h"))
-        tmax = str(np.datetime64(rs[-1]["time"], "h") + np.timedelta64(108, "h"))
+        levels = set(idx["sigma"]) if levels is None else levels & set(idx["sigma"])   # start levels of every event
+        times = sorted(r["time"] for r in rs)
+        tmin = str(np.datetime64(times[0], "h") + np.timedelta64(48, "h"))
+        tmax = str(np.datetime64(times[-1], "h") + np.timedelta64(108, "h"))
         events.append(dict(id=name, label=e["label"], region_lat=e["region_lat"], region_lon=e["region_lon"],
-                           sigma=rel["sigma"], tmin=tmin, tmax=tmax))
+                           sigma=idx["sigma"], tmin=tmin, tmax=tmax))
         rows.append(f"<tr><td>{html.escape(e['label'])}</td><td>{tmin[:10]} {tmin[11:13]} to {tmax[:10]} {tmax[11:13]}</td>"
                     f"<td>{html.escape(e['basis'])}</td></tr>")
+    sig = sorted(levels, reverse=True)                                             # surface first
+    words = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+    and_list = lambda xs: ", ".join(xs[:-1]) + " and " + xs[-1]                    # noqa: E731
+    near = [s for s in sig if s > 0.95]
+    hpa = and_list([f"{s * 1000:.0f}" for s in sig if s <= 0.95])
+    z_km = lambda p: 44.33 * (1 - (p / 1013.25) ** 0.1903)                          # noqa: E731 standard atmosphere
+    ck = torch.load(R03 / "outputs/models/context_ki_era5.pt", map_location="cpu", weights_only=False)
     rep = {
         "N_PER": str(rel["n_per"]),
-        "SIGMA_TEXT": ", ".join(f"{s:g}" for s in rel["sigma"][:-1]) + f" and {rel['sigma'][-1]:g}",
+        "N_LEVELS": words.get(len(sig), str(len(sig))),
+        "SIGMA_TEXT": and_list([f"{s:g}" for s in sig]),
+        "SIGMA_HPA": ("just above the ground and about " if near else "about ") + hpa + "&nbsp;hPa",
+        "LEVEL_RANGE": (f"just above the ground to about {sig[-1] * 1000:.0f}&nbsp;hPa (up to roughly "
+                        f"{z_km(sig[-1] * 1000):.0f}&nbsp;km above sea level)" if near else
+                        f"about {sig[0] * 1000:.0f} to {sig[-1] * 1000:.0f}&nbsp;hPa (roughly {z_km(sig[0] * 1000):.0f}"
+                        f"&ndash;{z_km(sig[-1] * 1000):.0f}&nbsp;km above sea level)"),
+        "TRAIN_STEPS": f"{ck['args']['steps']:,}", "BEST_STEP": f"{ck['step']:,}",
+        "TRAIN_PATCHES": str(ck["args"]["batch"] * ck["world_size"]), "N_GPU": words[ck["world_size"]],
+        "N_QUERY": str(ck["args"]["queries"]), "LR": f"{ck['args']['lr']:g}", "WARMUP": f"{ck['args']['warmup']:,}",
+        "N_PARAMS": f"{sum(v.numel() for v in ck['state'].values()) / 1e6:.1f}",
+        "D_MODEL": str(ck["args"]["d_model"]),
         "N_PATCHES": f"{n_patches:,}", "N_PARCELS": f"{n_patches * rel['n_per'] / 1e6:.1f} million",
         "N_TRAIN": f"{training_tracks() / 1e6:.1f} million",
         "FC24": f"{d24[('forecast', 'conditional KI')]:.0f}", "BC24": f"{d24[('backcast', 'conditional KI')]:.0f}",

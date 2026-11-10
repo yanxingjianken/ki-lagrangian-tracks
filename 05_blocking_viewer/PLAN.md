@@ -9,7 +9,7 @@ ERA5 tracks.
 ## Why a precomputed track cloud
 The model reads no wind field: to forecast (backcast) parcels launched at time t it needs the tracks of ~192 nearby
 parcels over the 48 h before (after) t. Each event therefore gets a dense cloud of ERA5 parcel tracks (LAGRANTO),
-which supplies the context of any launch and the true tracks to compare with.
+which supplies the context of any launch.
 
 ## Events
 - 2010 Russia: catalogue blocks 880 and 881 (ERA5 TempestExtremes, z500 anomaly): 2010-07-10 22 UTC to 07-20 23 UTC
@@ -26,8 +26,10 @@ which supplies the context of any launch and the true tracks to compare with.
 ## Track cloud per event
 - ERA5 0.25° hourly, 37 levels, streamed as for `03_era5` (P files with the bottom-level bk fix, deleted after use).
 - Patches as in training: 300-km disks of 480 parcels, released every 12 h from 4 days before the window to its end,
-  on a grid of centres covering the region and 40° upstream, at start sigma 0.38, 0.285, 0.20 (about 380, 285 and
-  200 hPa at sea-level pressure; parcels then move in 3-D); caltra 157 h, -j, 1-min step.
+  on a grid of centres covering the region and 40° upstream, at six start levels (training levels of 03_era5): sigma
+  0.38, 0.285, 0.20 (about 380, 285 and 200 hPa at sea-level pressure) and, in a second release per time (`_lower`),
+  0.967, 0.85, 0.477 (just above the ground, about 850 and 480 hPa); parcels then move in 3-D; caltra 157 h, -j,
+  1-min step.
 - Package per event (public Hugging Face dataset): positions and velocities of every parcel every 3 h (float16, one
   row per patch so that a page can fetch a single patch with an HTTP range request), patch centroids, and the 500-hPa
   height and its departure from the zonal mean every 6 h at 1° for the maps.
@@ -36,15 +38,16 @@ which supplies the context of any launch and the true tracks to compare with.
 - The network is exported to two ONNX graphs (encoder, decoder) with 8-bit weights of the matrix products per output
   channel (40 MB, public model repository) and runs in onnxruntime-web (WebAssembly, one thread).
 - A click (event, time, level, lat, lon) -> among the patches of that level (forecast:
-  released 48-132 h earlier; backcast: 24-108 h earlier) the one with the most parcels within 300 km of the point
-  gives the 192 context parcels; its 16 parcels nearest the point are launched; 16 members of the stochastic ensemble (eps_rel = 1.5 from `04_rwb_forecast/configs/ensemble.json`)
-  are integrated forward and backward 24 h in 10-min steps and drawn hour by hour next to the true tracks. About 30 s
+  released 48-132 h earlier; backcast: 24-108 h earlier), of the six whose centroids are nearest the point, the one
+  whose 16th-nearest parcel is closest to it gives the 192 context parcels; its 16 parcels nearest the point are
+  launched; 16 members of the stochastic ensemble (eps_rel = 1.5 from `04_rwb_forecast/configs/ensemble.json`)
+  are integrated forward and backward 24 h in 10-min steps and drawn hour by hour. About 30 s
   per launch.
 - `scripts/06_check_onnx.py` checks the graphs against PyTorch on 2021 tracks with the same integration as the page.
 
 ## Page and retirement
 - `_pages/rwb-prediction.html` replaced (same URL): event menu, time slider, level, longitude-latitude map with the
-  500-hPa height, click to launch, ensemble members and mean, true tracks, pressure against time; journal style,
+  500-hPa height, click to launch, ensemble members and mean, pressure against time; journal style,
   every term defined. Nothing is written to the browser's caches; the network and event data are dropped when the
   page is left.
 - Retired: `.github/workflows/rwb_prediction.yml`, `pipelines/rwb_prediction/`, the Blocking Plots card text; the
@@ -53,7 +56,7 @@ which supplies the context of any launch and the true tracks to compare with.
 ```mermaid
 graph TD
     C["catalogue + Wikipedia dates"] --> EV["01_events.py: block region and window on ERA5 z500"]
-    EV --> R["02_releases.py: patches every 12 h, sigma 0.38 / 0.285 / 0.20"]
+    EV --> R["02_releases.py: patches every 12 h, sigma 0.967 / 0.85 / 0.477 and 0.38 / 0.285 / 0.20"]
     R --> P["run_production.py: ERA5 hour -> P file -> caltra -> tracks -> delete"]
     P --> K["03_package.py: tracks every 3 h (float16), patch index, z500 maps"]
     K --> D[("HF dataset (public)")]

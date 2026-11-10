@@ -1,10 +1,12 @@
 # 05_blocking_viewer — launch air parcels in a blocking event and see their ±24 h tracks
 
 Builds the data, the in-browser model and the page of the interactive viewer at `/blocking-plots/rwb-prediction/`
-of the Blocking Plots site: choose a blocking event, a time, a start level (about 380, 285 or 200 hPa) and a point;
-the conditional Kinematic Interpolant of `03_era5` forecasts and backcasts the 16 tracked ERA5 parcels nearest the
-point for 24 h as an ensemble, next to their true tracks. The model reads no wind field, so every event comes with a
-dense cloud of true tracks that supplies the context (48 h of observed tracks of 192 nearby parcels) of any launch.
+of the Blocking Plots site: choose a blocking event, a time, a start level (just above the ground, or about 850, 480,
+380, 285 or 200 hPa) and a point; the conditional Kinematic Interpolant of `03_era5` forecasts and backcasts the 16
+tracked ERA5 parcels nearest the point for 24 h as an ensemble (the page draws the network's tracks only and says how
+far from the point the launched parcels start). The model reads no wind field, so every event comes with a dense cloud
+of true tracks that supplies the context (48 h of observed tracks of 192 nearby parcels) of any launch. Everything the
+page uses is public on Hugging Face and runs in the visitor's browser; no server is involved.
 
 | Event | Life-cycle window | Basis |
 | --- | --- | --- |
@@ -19,7 +21,7 @@ dense cloud of true tracks that supplies the context (48 h of observed tracks of
 | Step | Script | Output |
 | --- | --- | --- |
 | 1 | `scripts/01_events.py` — 500-hPa height and its departure from the zonal mean every 6 h over a search area per event (`configs/events_search.json`); maps checked by eye; windows and regions in `configs/events.json` | `figures/events_<event>.png` |
-| 2 | `scripts/02_releases.py` — releases every 12 h from 4 days before each window, patch centres ~1000 km apart over the region and 40° upstream, start sigma 0.38 / 0.285 / 0.20, 480 parcels in 300-km disks | `configs/releases.json` |
+| 2 | `scripts/02_releases.py` — releases every 12 h from 4 days before each window, patch centres ~1000 km apart over the region and 40° upstream, six start levels in two releases per time (sigma 0.38 / 0.285 / 0.20, and `_lower` 0.967 / 0.85 / 0.477), each with its own seed; 480 parcels in 300-km disks | `configs/releases.json` |
 | 3 | `scripts/run_production.py` with `era5_pfiles.py`, `11_tracks.py`, `12_dataset.py` (copies of the `03_era5` scripts) — ERA5 0.25° hourly → P files → caltra → hourly tracks; P files deleted after use | `data/tracks/` |
 | 4 | `scripts/03_package.py` — per event: positions and velocities of all parcels every 3 h (float16, memory-mappable), patch index, 500-hPa maps | `pkg/<event>/` → Hugging Face dataset `yanxingjianken/blocking-tracks` |
 | 5 | `scripts/05_export_onnx.py` — encoder and decoder graphs for onnxruntime-web, 8-bit weights of the matrix products per output channel; `scripts/06_check_onnx.py` — the same integration as the page in NumPy + onnxruntime against PyTorch (`space/kimodel.py`, `space/core.py`: Python reference of the launch) on 2021 tracks; `scripts/07_wasm_timing.mjs` — time per call in WebAssembly | `hf_model/onnx/` → public Hugging Face model `yanxingjianken/ki-era5-tracks`, `outputs/wasm_timing.json` |
@@ -28,7 +30,7 @@ dense cloud of true tracks that supplies the context (48 h of observed tracks of
 ```mermaid
 graph TD
     C["catalogue + Wikipedia dates"] --> EV["01_events.py: block region and window on ERA5 z500"]
-    EV --> R["02_releases.py: patches every 12 h, sigma 0.38 / 0.285 / 0.20"]
+    EV --> R["02_releases.py: patches every 12 h, sigma 0.967 / 0.85 / 0.477 and 0.38 / 0.285 / 0.20"]
     R --> P["run_production.py: ERA5 hour -> P file -> caltra -> tracks -> delete"]
     P --> K["03_package.py: tracks every 3 h (float16), index, z500 maps"]
     K --> D[("HF dataset blocking-tracks (public)")]

@@ -9,10 +9,16 @@ const MODEL = "https://huggingface.co/yanxingjianken/ki-era5-tracks/resolve/main
 const EVENTS = @@EVENTS_JSON@@;
 const LAND_URLS = ["https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json", "https://unpkg.com/world-atlas@2/land-50m.json"];
 const NEAR_KM = 300, A_KM = 6371, H_KM = 7;
-const S = { ev: null, level: 1, ti: 0, data: {}, land: null, result: null, model: null, busy: false };
+const S = { ev: null, sigma: 0.285, ti: 0, data: {}, land: null, result: null, model: null, busy: false };
 const $ = (id) => document.getElementById(id);
 const W = () => $("bt-map").clientWidth || 800;
 const fmtT = (t) => t.slice(0, 10) + " " + t.slice(11, 13) + " UTC";
+const levelLabel = (s) => s > 0.95 ? `sigma ${s} (near the surface)` : `sigma ${s} (about ${Math.round(s * 1000)} hPa)`;
+function levelIndex() {           /* the event's start level nearest the chosen sigma */
+  const sg = S.data[S.ev.id].index.sigma; let k = 0;
+  sg.forEach((s, i) => { if (Math.abs(s - S.sigma) < Math.abs(sg[k] - S.sigma)) k = i; });
+  return k;
+}
 const hoursBetween = (a, b) => Math.round((Date.parse(a + ":00:00Z") - Date.parse(b + ":00:00Z")) / 3.6e6);
 
 /* ------------------------------------------------------------------ geometry */
@@ -84,6 +90,10 @@ async function loadEvent(id) {
     S.data[id] = { index, zmeta, z: new Int16Array(zbuf), cen: new Float32Array(cbuf), hlen, rowBytes: index.row_shape.reduce((a, b) => a * b) * 2 };
   }
   S.ev = ev;
+  const ls = $("bt-level"), sg = S.data[id].index.sigma;
+  ls.innerHTML = "";
+  for (const s of [...sg].sort((a, b) => a - b)) ls.add(new Option(levelLabel(s), s));    /* top level first */
+  S.sigma = sg[levelIndex()]; ls.value = S.sigma;
   const m = S.data[id].zmeta;
   S.times = m.times.filter((t) => t >= ev.tmin && t <= ev.tmax);
   const r = $("bt-t"); r.max = S.times.length - 1; S.ti = Math.min(S.ti, S.times.length - 1); r.value = S.ti;
@@ -100,11 +110,11 @@ async function patchRow(row) {
 }
 
 /* ------------------------------------------------------------------ model */
-async function choosePatch(t, d, a0, a1, lat, lon) {
+async function choosePatch(t, d, a0, a1, lat, lon, nLaunch) {
   const D = S.data[S.ev.id], nh = D.index.row_shape[0], np_ = D.index.row_shape[1];
-  const cand = [];
+  const cand = [], lk = levelIndex();
   for (const p of D.index.patches) {
-    if (p.level !== S.level) continue;
+    if (p.level !== lk) continue;
     const age = hoursBetween(t, p.release_time);
     if (age < a0 || age > a1 || age % 3) continue;
     const k = (p.row * nh + age / 3) * 2;
@@ -112,11 +122,11 @@ async function choosePatch(t, d, a0, a1, lat, lon) {
   }
   cand.sort((x, y) => x.dist - y.dist);
   let best = null;
-  for (const c of cand.slice(0, 3)) {
+  for (const c of cand.slice(0, 6)) {      /* nearest patch centroids; keep the one whose nLaunch-th nearest parcel is closest */
     const P = await patchRow(c.p.row), hi = c.age / 3, dist = new Float64Array(np_);
     for (let i = 0; i < np_; i++) { const o = (hi * np_ + i) * 6, [lo, la] = toLonLat(P[o], P[o + 1]); dist[i] = gcKm(la, lo, lat, lon); }
-    const n = dist.reduce((s, x) => s + (x < NEAR_KM), 0);
-    if (!best || n > best.n) best = { ...c, P, dist, n, hi };
+    const n = dist.reduce((s, x) => s + (x < NEAR_KM), 0), reach = Float64Array.from(dist).sort()[nLaunch - 1];
+    if (!best || reach < best.reach) best = { ...c, P, dist, n, hi, reach };
   }
   return best;
 }
@@ -157,14 +167,12 @@ async function runDirection(M, B, d, nLaunch, onHour) {
     }
     if ((k + 1) % sph === 0) { hourly.push(Float32Array.from(x)); await onHour(hourly.length - 1); }
   }
-  /* to [lon, lat, p] lists: members every 3 h, mean hourly, truth every 3 h (as the Python reference) */
+  /* to [lon, lat, p] lists: members every 3 h, mean hourly */
   const llp = (X, o) => { const [lo, la] = toLonLat(X[o], X[o + 1]); return [lo, la, 1000 * Math.exp(-X[o + 2] / H_KM)]; };
   const members = hourly.filter((_, h) => h % 3 === 0).map((X) => Array.from({ length: mem }, (_, m) => tgt.map((_, j) => llp(X, (m * nLaunch + j) * 3))));
   const mean = hourly.map((X) => tgt.map((_, j) => { const mx = [0, 0, 0]; for (let m = 0; m < mem; m++) for (let c = 0; c < 3; c++) mx[c] += X[(m * nLaunch + j) * 3 + c] / mem; return llp(mx, 0); }));
-  const truth = Array.from({ length: 9 }, (_, k) => tgt.map((i) => llp(P, ((hi + d * k) * np_ + i) * 6)));
-  const err = tgt.map((_, j) => gcKm(mean[24][j][1], mean[24][j][0], truth[8][j][1], truth[8][j][0])).sort((p, q) => p - q);
-  return { release_time: B.p.release_time, parcels_within_km: B.n, near_km: NEAR_KM, hours: Array.from({ length: hourly.length }, (_, h) => d * h),
-           truth_hours: Array.from({ length: 9 }, (_, k) => d * 3 * k), members, mean, truth, median_error_24h_km: err[Math.floor(err.length / 2)].toFixed(0), done: hourly.length - 1 };
+  return { release_time: B.p.release_time, start_km: B.dist[tgt[tgt.length - 1]], hours: Array.from({ length: hourly.length }, (_, h) => d * h),
+           member_hours: Array.from({ length: members.length }, (_, k) => d * 3 * k), members, mean, done: hourly.length - 1 };
 }
 
 async function launch(lat, lon) {
@@ -176,7 +184,7 @@ async function launch(lat, lon) {
     S.result = { lat, lon, directions: {} };
     for (const [name, d, a0, a1] of [["forecast", 1, 48, 132], ["backcast", -1, 24, 108]]) {
       $("bt-status").textContent = `${name}: finding tracked parcels near ${lat.toFixed(1)}°N, ${lon.toFixed(1)}°E …`;
-      const B = await choosePatch(t, d, a0, a1, lat, lon);
+      const B = await choosePatch(t, d, a0, a1, lat, lon, nLaunch);
       if (!B || B.n < nLaunch) { S.result.directions[name] = { error: `fewer than ${nLaunch} tracked parcels within ${NEAR_KM} km of this point at this time and level` }; continue; }
       S.result.directions[name] = await runDirection(M, B, d, nLaunch, async (h) => {
         $("bt-status").textContent = `${name}: hour ${h} of 24 (${M.backend}) …`;
@@ -187,7 +195,7 @@ async function launch(lat, lon) {
     const parts = [];
     for (const n of ["forecast", "backcast"]) {
       const d = S.result.directions[n];
-      parts.push(d.error ? `${n}: ${d.error}.` : `${n}: ${d.parcels_within_km} parcels of a patch released ${fmtT(d.release_time)} lay within ${d.near_km} km; after 24 h the ensemble mean is a median ${d.median_error_24h_km} km from the true positions of the ${nLaunch} launched parcels.`);
+      parts.push(d.error ? `${n}: ${d.error}.` : `${n}: the ${nLaunch} tracked parcels nearest the point (all within ${d.start_km.toFixed(0)} km of it), of a patch released ${fmtT(d.release_time)}.`);
     }
     $("bt-result").textContent = parts.join(" ");
     $("bt-status").textContent = `Done in ${((performance.now() - t0) / 1000).toFixed(0)} s. Click elsewhere, or change the time or level and click again.`;
@@ -219,7 +227,8 @@ function projection(w) {
 }
 function axes(svg, G) {
   const { P, frame, lon, lat } = G, [fx, fy, fw, fh] = frame, g = svg.append("g").attr("font-size", 9).attr("font-family", "Helvetica, Arial, sans-serif");
-  const span = lon[lon.length - 1] - lon[0], dl = span > 120 ? 20 : 10;
+  const span = lon[lon.length - 1] - lon[0], pxDeg = fw / span;              /* tick spacing: labels at least ~44 px apart */
+  const dl = [10, 20, 30, 40, 60].find((d) => d * pxDeg >= 44) || 60, dp = [10, 20].find((d) => d * pxDeg * G.k >= 16) || 20;
   const fmtLon = (v) => { const x = ((v % 360) + 360) % 360; return x === 0 ? "0\u00B0" : x <= 180 ? `${x}\u00B0E` : `${360 - x}\u00B0W`; };
   for (let v = Math.ceil(lon[0] / dl) * dl; v <= lon[lon.length - 1]; v += dl) {
     const [x] = P([v, lat[0]]);
@@ -227,7 +236,7 @@ function axes(svg, G) {
     g.append("line").attr("x1", x).attr("x2", x).attr("y1", fy + fh).attr("y2", fy + fh + 4).attr("stroke", "#000");
     g.append("text").attr("x", x).attr("y", fy + fh + 15).attr("text-anchor", "middle").text(fmtLon(v));
   }
-  for (let v = Math.ceil(lat[0] / 10) * 10; v <= lat[lat.length - 1]; v += 10) {
+  for (let v = Math.ceil(lat[0] / dp) * dp; v <= lat[lat.length - 1]; v += dp) {
     const [, y] = P([lon[0], v]);
     g.append("line").attr("x1", fx).attr("x2", fx + fw).attr("y1", y).attr("y2", y).attr("stroke", "#000").attr("stroke-opacity", 0.12);
     g.append("line").attr("x1", fx - 4).attr("x2", fx).attr("y1", y).attr("y2", y).attr("stroke", "#000");
@@ -274,7 +283,7 @@ function draw() {
     if (x < fx || y < fy || x > fx + fw || y > fy + fh) return;
     const ll = P.invert([x, y]); if (ll) launch(ll[1], ((ll[0] % 360) + 360) % 360);
   });
-  $("bt-figtitle").textContent = `${S.ev.label}: ${fmtT(t)}, start level sigma ${S.ev.sigma[S.level]}`;
+  $("bt-figtitle").textContent = `${S.ev.label}: ${fmtT(t)}, start level ${levelLabel(S.sigma)}`;
   $("bt-caption").textContent = `Shading: 500-hPa height minus its average around the latitude circle (red: ridges and blocks, blue: troughs; every 50 m from −400 to 400 m). Contours: 500-hPa height every 80 m. Grey lines: coastlines. Longitude\u2013latitude map, latitude stretched \u00D7${G.k.toFixed(1)} so that shapes are about right near ${G.mid.toFixed(0)}\u00B0N. Click to launch parcels; tracks then show 24 h after (red) and before (blue) the chosen time.`;
 }
 function drawTracks(svg, P) {
@@ -287,17 +296,16 @@ function drawTracks(svg, P) {
       svg.append("path").attr("d", line(d.members.map((hh) => pt(hh[m][q])))).attr("fill", "none").attr("stroke", colE).attr("stroke-width", 0.7);
     for (let q = 0; q < nq; q++) {
       svg.append("path").attr("d", line(d.mean.map((hh) => pt(hh[q])))).attr("fill", "none").attr("stroke", colM).attr("stroke-width", 1.6);
-      svg.append("path").attr("d", line(d.truth.map((hh) => pt(hh[q])))).attr("fill", "none").attr("stroke", "#000").attr("stroke-width", 1.1).attr("stroke-dasharray", "4,2");
     }
   }
-  const p0 = P([r.lon, r.lat]);
-  svg.append("path").attr("d", d3.symbol(d3.symbolStar, 120)()).attr("transform", `translate(${p0[0]},${p0[1]})`).attr("fill", "#ffd400").attr("stroke", "#000");
+  const p0 = P([r.lon, r.lat]), sz = Math.max(0.35, Math.min(1, W() / 800));      /* star scaled with the map */
+  svg.append("path").attr("d", d3.symbol(d3.symbolStar, 120 * sz * sz)()).attr("stroke-width", sz).attr("transform", `translate(${p0[0]},${p0[1]})`).attr("fill", "#ffd400").attr("stroke", "#000");
 }
 function drawPressure() {
   const w = W(), h = 220, m = { l: 48, r: 12, t: 10, b: 30 };
   const svg = d3.select("#bt-p").attr("viewBox", `0 0 ${w} ${h}`).attr("height", h); svg.selectAll("*").remove();
   const r = S.result, all = [];
-  if (r) for (const n of ["forecast", "backcast"]) { const d = r.directions[n]; if (d && !d.error) { d.mean.forEach((hh) => hh.forEach((q) => all.push(q[2]))); d.truth.forEach((hh) => hh.forEach((q) => all.push(q[2]))); } }
+  if (r) for (const n of ["forecast", "backcast"]) { const d = r.directions[n]; if (d && !d.error) { d.mean.forEach((hh) => hh.forEach((q) => all.push(q[2]))); d.members.forEach((hh) => hh.forEach((mm) => mm.forEach((q) => all.push(q[2])))); } }
   if (!all.length) { svg.append("text").attr("x", m.l).attr("y", h / 2).attr("font-size", 11).text("Launch parcels to see their pressure."); return; }
   const x = d3.scaleLinear([-24, 24], [m.l, w - m.r]), y = d3.scaleLinear([d3.max(all) + 10, d3.min(all) - 10], [h - m.b, m.t]);
   svg.append("g").attr("transform", `translate(0,${h - m.b})`).call(d3.axisBottom(x).tickValues(d3.range(-24, 25, 6)));
@@ -305,11 +313,12 @@ function drawPressure() {
   svg.append("text").attr("x", w / 2).attr("y", h - 2).attr("text-anchor", "middle").attr("font-size", 10).text("hours from the chosen time");
   svg.append("text").attr("transform", `translate(12,${h / 2}) rotate(-90)`).attr("text-anchor", "middle").attr("font-size", 10).text("pressure (hPa)");
   const line = d3.line().x((p) => x(p[0])).y((p) => y(p[1]));
-  for (const [n, col] of [["forecast", "#b2182b"], ["backcast", "#2166ac"]]) {
+  for (const [n, col, colE] of [["forecast", "#b2182b", "rgba(178,24,43,0.15)"], ["backcast", "#2166ac", "rgba(33,102,172,0.15)"]]) {
     const d = r.directions[n]; if (!d || d.error) continue;
+    for (let m = 0; m < d.members[0].length; m++) for (let q = 0; q < d.members[0][0].length; q++)
+      svg.append("path").attr("d", line(d.members.map((hh, k) => [d.member_hours[k], hh[m][q][2]]))).attr("fill", "none").attr("stroke", colE).attr("stroke-width", 0.6);
     for (let q = 0; q < d.mean[0].length; q++) {
       svg.append("path").attr("d", line(d.mean.map((hh, k) => [d.hours[k], hh[q][2]]))).attr("fill", "none").attr("stroke", col).attr("stroke-width", 1.1);
-      svg.append("path").attr("d", line(d.truth.map((hh, k) => [d.truth_hours[k], hh[q][2]]))).attr("fill", "none").attr("stroke", "#000").attr("stroke-width", 0.9).attr("stroke-dasharray", "4,2");
     }
   }
 }
@@ -321,10 +330,8 @@ async function init() {
   window.addEventListener("pageshow", (e) => { if (e.persisted) location.reload(); });   /* back button: the dropped data is fetched again */
   const es = $("bt-event"), ls = $("bt-level");
   for (const e of EVENTS) es.add(new Option(e.label, e.id));
-  EVENTS[0].sigma.forEach((s, k) => ls.add(new Option(`sigma ${s} (about ${Math.round(s * 1000)} hPa)`, k)));
-  ls.value = S.level;
   es.onchange = () => { S.ti = 0; loadEvent(es.value); };
-  ls.onchange = () => { S.level = +ls.value; S.result = null; draw(); drawPressure(); $("bt-result").textContent = ""; };
+  ls.onchange = () => { S.sigma = +ls.value; S.result = null; draw(); drawPressure(); $("bt-result").textContent = ""; };
   $("bt-t").oninput = (e) => { S.ti = +e.target.value; S.result = null; draw(); drawPressure(); $("bt-result").textContent = ""; };
   window.addEventListener("resize", () => { draw(); drawPressure(); });
   for (const u of LAND_URLS) { try { const topo = await (await fetch(u, NO_STORE)).json(); S.land = topojson.mesh(topo, topo.objects.land); break; } catch (e) { S.land = null; } }

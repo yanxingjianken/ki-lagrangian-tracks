@@ -1,11 +1,12 @@
-"""Package one event's track cloud and maps for the Hugging Face dataset read by the Space and the page.
+"""Package one event's track cloud and maps for the Hugging Face dataset read by the page.
 
 From data/tracks/tracks_<release>.npz (12_dataset.py; hourly x, v of every parcel) of the event's releases:
   pkg/<event>/tracks.npy   float16 (P, 53, 480, 6): x, y, z (km) and u, v, w (km/h) of the 480 parcels of each patch
                            every 3 h from release to 156 h (memory-mappable);
   pkg/<event>/centroids.bin float32 (P, 53, 2): latitude and longitude of each patch's centroid every 3 h (the
                            page picks candidate patches from these before fetching one patch's rows of tracks.npy);
-  pkg/<event>/index.json   per patch row: release name and time, start level (sigma index), patch centre;
+  pkg/<event>/index.json   per patch row: release name and time, start level (index into sigma, the event's start
+                           levels from the surface up; the upper and _lower releases of a time are merged), patch centre;
                            event label, window, region, basis, sigma, the hours stored;
   pkg/<event>/z500.bin     int16 metres (2, T, ny, nx): ERA5 500-hPa height and its departure from the zonal mean
                            (global, same latitude and time), every 6 h at 1 deg over the region (latitude ascending,
@@ -58,17 +59,19 @@ if __name__ == "__main__":
     out = ROOT / ("pkg_test" if a.limit else "pkg") / a.event
     out.mkdir(parents=True, exist_ok=True)
     rows, n_per = [], cfg["n_per"]
-    n_p = len(rels) * len(rels[0]["centres"]) * len(cfg["sigma"])
+    n_p = sum(len(r["centres"]) * len(r["sigma"]) for r in rels)
+    rels = sorted(rels, key=lambda r: (r["time"], -r["sigma"][0]))   # by time, lower release first
     arr = np.lib.format.open_memmap(out / "tracks.npy", mode="w+", dtype=np.float16, shape=(n_p, len(HOURS), n_per, 6))
     rng, i = np.random.default_rng(0), 0
     for r in rels:
         with np.load(ROOT / f"data/tracks/tracks_{r['name']}.npz") as f:
-            x, v, level, patch, th = f["x_km"], f["v_kmh"], f["level"], f["patch"], f["time_h"]
+            x, v, level, patch, th, sig = f["x_km"], f["v_kmh"], f["level"], f["patch"], f["time_h"], f["sigma"]
         sel = np.searchsorted(th, HOURS)
-        assert np.allclose(th[sel], HOURS)
-        for k in range(len(cfg["sigma"])):
+        assert np.allclose(th[sel], HOURS) and np.allclose(sig, r["sigma"])
+        for kr, s_k in enumerate(r["sigma"]):
+            k = int(np.argmin(np.abs(np.asarray(cfg["sigma"]) - s_k)))       # index among all start levels
             for q, (clat, clon) in enumerate(r["centres"]):
-                idx = np.flatnonzero((level == k) & (patch == q))
+                idx = np.flatnonzero((level == kr) & (patch == q))
                 if len(idx) < n_per:
                     idx = np.r_[idx, rng.choice(idx, n_per - len(idx))]
                 arr[i, ..., :3] = x[sel][:, idx[:n_per]]

@@ -63,19 +63,23 @@ class Launcher:
         for name, d, (a0, a1) in (("forecast", 1, (48, 132)), ("backcast", -1, (24, 108))):
             age = (t - rel).astype(int)
             cand = np.flatnonzero((lev == level) & (age >= a0) & (age <= a1) & (age % 3 == 0))
+            # as the page: of the 6 patches whose centroids are nearest the point, the one whose N_LAUNCH-th nearest
+            # parcel is closest to it
+            cen = [stereo_to_lonlat(np.asarray(arr[c, age[c] // 3, :, :2], np.float32).mean(0)) for c in cand]
+            near6 = [cand[i] for i in np.argsort([gc_km(la, lo, lat, lon) for lo, la in cen])[:6]]
             best = None
-            for c in cand:
+            for c in near6:
                 lo, la = stereo_to_lonlat(np.asarray(arr[c, age[c] // 3, :, :2], np.float32))
                 dist = gc_km(la, lo, lat, lon)
-                n = int((dist < NEAR_KM).sum())
-                if best is None or (n, -dist.min()) > (best[0], -best[2].min()):
-                    best = (n, c, dist)
+                n, reach = int((dist < NEAR_KM).sum()), float(np.sort(dist)[N_LAUNCH - 1])
+                if best is None or reach < best[3]:
+                    best = (n, c, dist, reach)
             if best is None or best[0] < MIN_NEAR:
                 out["directions"][name] = dict(error=f"fewer than {MIN_NEAR} tracked parcels within {NEAR_KM:.0f} km of "
                                                      f"this point at this time and level; try a point closer to the flow "
                                                      f"or another time")
                 continue
-            n, c, dist = best
+            n, c, dist, _ = best
             row = age[c] // 3
             P = np.asarray(arr[c], np.float32)                       # (53, 480, 6): x, y, z, u, v, w
             tgt = np.argsort(dist)[:N_LAUNCH]
