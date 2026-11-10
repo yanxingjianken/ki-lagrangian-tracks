@@ -43,5 +43,10 @@ graph TD
 Hosting a Python (Gradio) Space on Hugging Face's free hardware now needs a paid subscription, so the model runs in
 the visitor's browser. On 36 patches of 2021 (16 parcels each, 16 members) the 24-h ensemble-mean median errors are
 247 / 180 km (forecast / backcast) in PyTorch, 236 / 191 km with the full-precision graphs and 254 / 190 km with the
-8-bit graphs the page uses (40 MB); a launch takes about 30 s in onnxruntime-web on one core. A headless-Chrome run
-of the live page (Russia 2010) finished a launch in 31 s.
+8-bit graphs the page uses (40 MB); a launch takes about 30 s in onnxruntime-web on one core. Headless-Chrome launches of the built page take 18-32 s.
+
+The track clouds hold 27,744 patches (13.3 million parcels) over the five events and six start levels; packages on the
+dataset are 1.0-2.5 GB per event, of which a launch reads about 2 MB. Over each event region, at three times, 70-99 %
+of the points of a 2 deg x 3 deg grid have at least 16 tracked parcels of one patch within 300 km (the condition for a
+launch) in both directions; near the surface 86-97 %, since slow parcels stay near their release centres. Elsewhere
+the page reports that too few parcels are near the point.
