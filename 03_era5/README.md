@@ -36,7 +36,7 @@ used, and deleted.
 | 20 | `scripts/20_train_context.py` (`torchrun`, DDP) — training set sharded by release across GPUs, float32 x, v, a on the GPUs | `outputs/models/context_ki_era5.pt`, live panels in `outputs/logs/` |
 | 21 | `scripts/21_eval_context.py` — unseen patches of the training releases, 2021, 2021 at unseen latitudes; anchors 48/72/96 h; horizontal (km) and vertical (hPa) errors against straight motion | `outputs/eval/context_ki_era5.csv.gz` |
 | 22 | `scripts/22_figures.py` | `figures/f1_conditional_ki_era5.png`, `figures/f2_by_level.png` |
-| nb | `ki_era5.ipynb` (written by `scripts/build_ki_era5_notebook.py`) — self-contained run in the ocean-notebook layout: downloads 73 h of ERA5 (Pacific Northwest heat dome, June 2021), writes LAGRANTO files, computes the true tracks of 8 patches, loads the model from the public Hugging Face repository and forecasts / backcasts 24 h (deterministic and 16-member ensemble) against the truth and straight motion; deletes the downloaded winds at the end | — |
+| nb | `ki_era5.ipynb` (written by `scripts/build_ki_era5_notebook.py`) — the ocean-notebook layout on true ERA5 tracks without any large download: reads eight patches of the 2010 Russian block (2010 was not used in training) by byte range from the public Hugging Face dataset of `05_blocking_viewer`, loads the model from the public Hugging Face model, forecasts / backcasts 64 parcels per patch for 24 h (deterministic and 16-member ensemble) against the truth and straight motion, with maps over the 500-hPa height | — |
 | all | `scripts/run_all.sh` (detached) — production for every release; training once all training releases have tracks; evaluation and figures once 2021 is done | `outputs/logs/run_all.log` |
 
 ```mermaid
