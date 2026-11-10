@@ -1,0 +1,333 @@
+import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/ort.wasm.min.mjs";
+
+/* Air-parcel tracks in blocking events: data from the Hugging Face dataset, the conditional Kinematic Interpolant run
+   in the browser with onnxruntime-web. The integration mirrors 05_blocking_viewer/scripts/06_check_onnx.py. */
+ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/";
+ort.env.wasm.numThreads = 1;
+const DATA = "https://huggingface.co/datasets/yanxingjianken/blocking-tracks/resolve/main";
+const MODEL = "https://huggingface.co/yanxingjianken/ki-era5-tracks/resolve/main/onnx";
+const EVENTS = @@EVENTS_JSON@@;
+const LAND_URLS = ["https://cdn.jsdelivr.net/npm/world-atlas@2/land-50m.json", "https://unpkg.com/world-atlas@2/land-50m.json"];
+const NEAR_KM = 300, A_KM = 6371, H_KM = 7;
+const S = { ev: null, level: 1, ti: 0, data: {}, land: null, result: null, model: null, busy: false };
+const $ = (id) => document.getElementById(id);
+const W = () => $("bt-map").clientWidth || 800;
+const fmtT = (t) => t.slice(0, 10) + " " + t.slice(11, 13) + " UTC";
+const hoursBetween = (a, b) => Math.round((Date.parse(a + ":00:00Z") - Date.parse(b + ":00:00Z")) / 3.6e6);
+
+/* ------------------------------------------------------------------ geometry */
+function toLonLat(x, y) {
+  const r = Math.hypot(x, y), lat = 90 - (2 * Math.atan(r / (2 * A_KM))) * 180 / Math.PI;
+  return [((Math.atan2(x, -y) * 180 / Math.PI) % 360 + 360) % 360, lat];
+}
+function gcKm(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180, c = Math.sin(lat1 * r) * Math.sin(lat2 * r) + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.cos((lon2 - lon1) * r);
+  return A_KM * Math.acos(Math.max(-1, Math.min(1, c)));
+}
+const sinLat = (x, y) => Math.cos(2 * Math.atan(Math.hypot(x, y) / (2 * A_KM)));
+function f16(h) {
+  const s = h & 0x8000 ? -1 : 1, e = (h >> 10) & 0x1f, f = h & 0x3ff;
+  if (e === 0) return s * Math.pow(2, -14) * (f / 1024);
+  if (e === 31) return f ? NaN : s * Infinity;
+  return s * Math.pow(2, e - 15) * (1 + f / 1024);
+}
+function rng(seed) {   /* mulberry32 with Box-Muller normals */
+  let a = seed >>> 0, spare = null;
+  const u = () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  return { u, n() { if (spare !== null) { const s = spare; spare = null; return s; } let p, q, r; do { p = 2 * u() - 1; q = 2 * u() - 1; r = p * p + q * q; } while (r >= 1 || r === 0); const m = Math.sqrt(-2 * Math.log(r) / r); spare = q * m; return p * m; } };
+}
+
+/* ------------------------------------------------------------------ data */
+const NO_STORE = { cache: "no-store" };          /* nothing downloaded here is kept by the browser after the page closes */
+async function fetchBytes(url, label) {
+  const res = await fetch(url, NO_STORE);
+  if (!res.ok) throw new Error(`${label}: HTTP ${res.status}`);
+  const total = +res.headers.get("content-length") || 0, reader = res.body.getReader(), parts = [];
+  let got = 0;
+  for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); got += value.length;
+    $("bt-status").textContent = `Downloading the network (${label}): ${(got / 1e6).toFixed(0)}${total ? " of " + (total / 1e6).toFixed(0) : ""} MB \u2026`; }
+  const buf = new Uint8Array(got); let o = 0; for (const p of parts) { buf.set(p, o); o += p.length; }
+  return buf;
+}
+function releaseModel() {
+  if (!S.model) return;
+  try { S.model.enc.release(); S.model.dec.release(); } catch (e) { /* already released */ }
+  S.model = null;
+}
+function leavePage() {
+  /* drop the network and every downloaded event when the page is left; nothing was written to the browser's caches */
+  releaseModel(); S.data = {}; S.result = null;
+  try { caches.delete("blocking-tracks-model"); } catch (e) { /* no Cache Storage */ }
+}
+
+async function loadModel() {
+  if (S.model) return S.model;
+  const cfg = await (await fetch(`${MODEL}/config.json`, NO_STORE)).json();
+  const encB = await fetchBytes(`${MODEL}/${cfg.graphs.encoder}`, "encoder"), decB = await fetchBytes(`${MODEL}/${cfg.graphs.decoder}`, "decoder");
+  const opt = { executionProviders: ["wasm"] };      /* 8-bit weights: the WebAssembly backend runs every operator */
+  const enc = await ort.InferenceSession.create(encB, opt), dec = await ort.InferenceSession.create(decB, opt);
+  const sc = cfg.scales;
+  S.model = { cfg, enc, dec, backend: "WebAssembly",
+    pos: sc.pos_km, vel: sc.vel_kmh, acc: sc.acc_kmh2, th: sc.time_h, sigv: cfg.sx_km.map((s) => s * cfg.omega / cfg.delta_h) };
+  return S.model;
+}
+
+async function loadEvent(id) {
+  const ev = EVENTS.find((e) => e.id === id);
+  if (!S.data[id]) {
+    $("bt-runinfo").textContent = "loading the event…";
+    const [index, zmeta, zbuf, cbuf, head] = await Promise.all([
+      fetch(`${DATA}/${id}/index.json`, NO_STORE).then((r) => r.json()), fetch(`${DATA}/${id}/z500.json`, NO_STORE).then((r) => r.json()),
+      fetch(`${DATA}/${id}/z500.bin`, NO_STORE).then((r) => r.arrayBuffer()), fetch(`${DATA}/${id}/centroids.bin`, NO_STORE).then((r) => r.arrayBuffer()),
+      fetch(`${DATA}/${id}/tracks.npy`, { ...NO_STORE, headers: { Range: "bytes=0-15" } }).then((r) => r.arrayBuffer())]);
+    const hv = new DataView(head), hlen = 10 + hv.getUint16(8, true);
+    S.data[id] = { index, zmeta, z: new Int16Array(zbuf), cen: new Float32Array(cbuf), hlen, rowBytes: index.row_shape.reduce((a, b) => a * b) * 2 };
+  }
+  S.ev = ev;
+  const m = S.data[id].zmeta;
+  S.times = m.times.filter((t) => t >= ev.tmin && t <= ev.tmax);
+  const r = $("bt-t"); r.max = S.times.length - 1; S.ti = Math.min(S.ti, S.times.length - 1); r.value = S.ti;
+  $("bt-runinfo").textContent = ev.label;
+  S.result = null; draw(); drawPressure(); $("bt-result").textContent = "";
+}
+
+async function patchRow(row) {
+  const D = S.data[S.ev.id], start = D.hlen + row * D.rowBytes;
+  const buf = await (await fetch(`${DATA}/${S.ev.id}/tracks.npy`, { ...NO_STORE, headers: { Range: `bytes=${start}-${start + D.rowBytes - 1}` } })).arrayBuffer();
+  const u = new Uint16Array(buf), out = new Float32Array(u.length);
+  for (let i = 0; i < u.length; i++) out[i] = f16(u[i]);
+  return out;                                    /* (53 times every 3 h, 480 parcels, x y z u v w) */
+}
+
+/* ------------------------------------------------------------------ model */
+async function choosePatch(t, d, a0, a1, lat, lon) {
+  const D = S.data[S.ev.id], nh = D.index.row_shape[0], np_ = D.index.row_shape[1];
+  const cand = [];
+  for (const p of D.index.patches) {
+    if (p.level !== S.level) continue;
+    const age = hoursBetween(t, p.release_time);
+    if (age < a0 || age > a1 || age % 3) continue;
+    const k = (p.row * nh + age / 3) * 2;
+    cand.push({ p, age, dist: gcKm(D.cen[k], D.cen[k + 1], lat, lon) });
+  }
+  cand.sort((x, y) => x.dist - y.dist);
+  let best = null;
+  for (const c of cand.slice(0, 3)) {
+    const P = await patchRow(c.p.row), hi = c.age / 3, dist = new Float64Array(np_);
+    for (let i = 0; i < np_; i++) { const o = (hi * np_ + i) * 6, [lo, la] = toLonLat(P[o], P[o + 1]); dist[i] = gcKm(la, lo, lat, lon); }
+    const n = dist.reduce((s, x) => s + (x < NEAR_KM), 0);
+    if (!best || n > best.n) best = { ...c, P, dist, n, hi };
+  }
+  return best;
+}
+
+async function runDirection(M, B, d, nLaunch, onHour) {
+  const { cfg } = M, np_ = S.data[S.ev.id].index.row_shape[1], P = B.P, hi = B.hi;
+  const order = Array.from(B.dist.keys()).sort((i, j) => B.dist[i] - B.dist[j]);
+  const tgt = order.slice(0, nLaunch), rest = order.slice(nLaunch), R = rng(1000 * B.p.row + hi);
+  for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(R.u() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
+  const ctx = rest.slice(0, cfg.context_parcels), nT = cfg.context_span_h / cfg.context_step_h + 1;
+  let cx = 0, cy = 0;
+  for (let i = 0; i < np_; i++) { cx += P[(hi * np_ + i) * 6]; cy += P[(hi * np_ + i) * 6 + 1]; }
+  cx /= np_; cy /= np_;
+  const tok = new Float32Array(nT * ctx.length * 8);
+  for (let k = 0; k < nT; k++) {
+    const h = hi - d * k, tau = -d * cfg.context_step_h * k / M.th;
+    ctx.forEach((i, j) => { const o = (h * np_ + i) * 6, q = (k * ctx.length + j) * 8;
+      tok.set([tau, (P[o] - cx) / M.pos[0], (P[o + 1] - cy) / M.pos[1], P[o + 2] / M.pos[2], sinLat(P[o], P[o + 1]),
+               P[o + 3] / M.vel[0], P[o + 4] / M.vel[1], P[o + 5] / M.vel[2]], q); });
+  }
+  const z = (await M.enc.run({ tokens: new ort.Tensor("float32", tok, [1, nT * ctx.length, 8]) })).latents;
+  const mem = cfg.members, Q = mem * nLaunch, x = new Float32Array(Q * 3), v = new Float32Array(Q * 3);
+  for (let m = 0; m < mem; m++) tgt.forEach((i, j) => { const o = (hi * np_ + i) * 6; x.set([P[o], P[o + 1], P[o + 2]], (m * nLaunch + j) * 3); v.set([P[o + 3], P[o + 4], P[o + 5]], (m * nLaunch + j) * 3); });
+  const sph = cfg.steps_per_h, dt = d / sph, eps = M.sigv.map((s) => cfg.eps_rel * s), noise = rng(7 + B.p.row);
+  const hourly = [Float32Array.from(x)], qry = new Float32Array(Q * 8);
+  for (let k = 0; k < 24 * sph; k++) {
+    for (let q = 0; q < Q; q++) {
+      const o = q * 3;
+      qry.set([k * dt / M.th, (x[o] - cx) / M.pos[0], (x[o + 1] - cy) / M.pos[1], x[o + 2] / M.pos[2], sinLat(x[o], x[o + 1]),
+               v[o] / M.vel[0], v[o + 1] / M.vel[1], v[o + 2] / M.vel[2]], q * 8);
+    }
+    const res = await M.dec.run({ latents: z, queries: new ort.Tensor("float32", qry, [1, Q, 8]) });
+    const a = res.acceleration.data, s = res.score.data;
+    for (let i = 0; i < Q * 3; i++) {
+      const c = i % 3, ai = a[i] * M.acc[c];
+      x[i] += dt * v[i];
+      v[i] += dt * ai + Math.abs(dt) * 0.5 * eps[c] * eps[c] * s[i] / M.sigv[c] + eps[c] * Math.sqrt(Math.abs(dt)) * noise.n();
+    }
+    if ((k + 1) % sph === 0) { hourly.push(Float32Array.from(x)); await onHour(hourly.length - 1); }
+  }
+  /* to [lon, lat, p] lists: members every 3 h, mean hourly, truth every 3 h (as the Python reference) */
+  const llp = (X, o) => { const [lo, la] = toLonLat(X[o], X[o + 1]); return [lo, la, 1000 * Math.exp(-X[o + 2] / H_KM)]; };
+  const members = hourly.filter((_, h) => h % 3 === 0).map((X) => Array.from({ length: mem }, (_, m) => tgt.map((_, j) => llp(X, (m * nLaunch + j) * 3))));
+  const mean = hourly.map((X) => tgt.map((_, j) => { const mx = [0, 0, 0]; for (let m = 0; m < mem; m++) for (let c = 0; c < 3; c++) mx[c] += X[(m * nLaunch + j) * 3 + c] / mem; return llp(mx, 0); }));
+  const truth = Array.from({ length: 9 }, (_, k) => tgt.map((i) => llp(P, ((hi + d * k) * np_ + i) * 6)));
+  const err = tgt.map((_, j) => gcKm(mean[24][j][1], mean[24][j][0], truth[8][j][1], truth[8][j][0])).sort((p, q) => p - q);
+  return { release_time: B.p.release_time, parcels_within_km: B.n, near_km: NEAR_KM, hours: Array.from({ length: hourly.length }, (_, h) => d * h),
+           truth_hours: Array.from({ length: 9 }, (_, k) => d * 3 * k), members, mean, truth, median_error_24h_km: err[Math.floor(err.length / 2)].toFixed(0), done: hourly.length - 1 };
+}
+
+async function launch(lat, lon) {
+  if (S.busy) return;
+  S.busy = true;
+  const t0 = performance.now(), t = S.times[S.ti];
+  try {
+    const M = await loadModel(), nLaunch = M.cfg.launch_parcels;
+    S.result = { lat, lon, directions: {} };
+    for (const [name, d, a0, a1] of [["forecast", 1, 48, 132], ["backcast", -1, 24, 108]]) {
+      $("bt-status").textContent = `${name}: finding tracked parcels near ${lat.toFixed(1)}°N, ${lon.toFixed(1)}°E …`;
+      const B = await choosePatch(t, d, a0, a1, lat, lon);
+      if (!B || B.n < nLaunch) { S.result.directions[name] = { error: `fewer than ${nLaunch} tracked parcels within ${NEAR_KM} km of this point at this time and level` }; continue; }
+      S.result.directions[name] = await runDirection(M, B, d, nLaunch, async (h) => {
+        $("bt-status").textContent = `${name}: hour ${h} of 24 (${M.backend}) …`;
+        if (h % 3 === 0) await new Promise((r) => setTimeout(r, 0));
+      });
+      draw(); drawPressure();
+    }
+    const parts = [];
+    for (const n of ["forecast", "backcast"]) {
+      const d = S.result.directions[n];
+      parts.push(d.error ? `${n}: ${d.error}.` : `${n}: ${d.parcels_within_km} parcels of a patch released ${fmtT(d.release_time)} lay within ${d.near_km} km; after 24 h the ensemble mean is a median ${d.median_error_24h_km} km from the true positions of the ${nLaunch} launched parcels.`);
+    }
+    $("bt-result").textContent = parts.join(" ");
+    $("bt-status").textContent = `Done in ${((performance.now() - t0) / 1000).toFixed(0)} s. Click elsewhere, or change the time or level and click again.`;
+  } catch (e) {
+    $("bt-status").textContent = "The network could not run (" + (e && e.message ? e.message : e) + ").";
+  }
+  S.busy = false; draw(); drawPressure();
+}
+
+/* ------------------------------------------------------------------ drawing */
+function field(f, t) {
+  const D = S.data[S.ev.id], [, T, ny, nx] = D.zmeta.shape, k = D.zmeta.times.indexOf(t);
+  return { v: D.z.subarray((f * T + k) * ny * nx, (f * T + k + 1) * ny * nx), nx, ny, lat0: D.zmeta.lat[0], lon0: D.zmeta.lon[0] };
+}
+const MARGIN = { l: 42, r: 20, t: 6, b: 24 };
+function projection(w) {
+  /* rectangular longitude-latitude map of the event's field area, latitude stretched by 1 / cos(mid-latitude) (at most
+     2) so that shapes are right there; centred on the area's middle longitude so that it never wraps */
+  const m = S.data[S.ev.id].zmeta, lat = m.lat;
+  const lon = m.lon.map((v) => m.lon[0] + (((v - m.lon[0]) % 360) + 360) % 360);   /* unwrapped across 0\u00B0 (e.g. 310 \u2026 460) */
+  const clon = (lon[0] + lon[lon.length - 1]) / 2, mid = (lat[0] + lat[lat.length - 1]) / 2;
+  const k = Math.min(1 / Math.cos(mid * Math.PI / 180), 2);
+  const raw = (x, y) => [x, y * k]; raw.invert = (x, y) => [x, y / k];
+  const box = { type: "MultiPoint", coordinates: [[lon[0], lat[0]], [lon[lon.length - 1], lat[lat.length - 1]], [lon[0], lat[lat.length - 1]], [lon[lon.length - 1], lat[0]]] };
+  const P = d3.geoProjection(raw).rotate([-clon, 0]).fitWidth(w - MARGIN.l - MARGIN.r, box);
+  const [[x0, y0], [x1, y1]] = d3.geoPath(P).bounds(box);
+  P.translate([P.translate()[0] + MARGIN.l - x0, P.translate()[1] + MARGIN.t - y0]);
+  return { P, h: Math.ceil(y1 - y0) + MARGIN.t + MARGIN.b, frame: [MARGIN.l, MARGIN.t, x1 - x0, y1 - y0], k, mid, lon, lat };
+}
+function axes(svg, G) {
+  const { P, frame, lon, lat } = G, [fx, fy, fw, fh] = frame, g = svg.append("g").attr("font-size", 9).attr("font-family", "Helvetica, Arial, sans-serif");
+  const span = lon[lon.length - 1] - lon[0], dl = span > 120 ? 20 : 10;
+  const fmtLon = (v) => { const x = ((v % 360) + 360) % 360; return x === 0 ? "0\u00B0" : x <= 180 ? `${x}\u00B0E` : `${360 - x}\u00B0W`; };
+  for (let v = Math.ceil(lon[0] / dl) * dl; v <= lon[lon.length - 1]; v += dl) {
+    const [x] = P([v, lat[0]]);
+    g.append("line").attr("x1", x).attr("x2", x).attr("y1", fy).attr("y2", fy + fh).attr("stroke", "#000").attr("stroke-opacity", 0.12);
+    g.append("line").attr("x1", x).attr("x2", x).attr("y1", fy + fh).attr("y2", fy + fh + 4).attr("stroke", "#000");
+    g.append("text").attr("x", x).attr("y", fy + fh + 15).attr("text-anchor", "middle").text(fmtLon(v));
+  }
+  for (let v = Math.ceil(lat[0] / 10) * 10; v <= lat[lat.length - 1]; v += 10) {
+    const [, y] = P([lon[0], v]);
+    g.append("line").attr("x1", fx).attr("x2", fx + fw).attr("y1", y).attr("y2", y).attr("stroke", "#000").attr("stroke-opacity", 0.12);
+    g.append("line").attr("x1", fx - 4).attr("x2", fx).attr("y1", y).attr("y2", y).attr("stroke", "#000");
+    g.append("text").attr("x", fx - 6).attr("y", y + 3).attr("text-anchor", "end").text(`${v}\u00B0N`);
+  }
+  g.append("rect").attr("x", fx).attr("y", fy).attr("width", fw).attr("height", fh).attr("fill", "none").attr("stroke", "#000");
+}
+function draw() {
+  if (!S.ev) return;
+  const w = W(), G = projection(w), h = G.h, P = G.P, t = S.times[S.ti];
+  const svg = d3.select("#bt-map").attr("viewBox", `0 0 ${w} ${h}`).attr("height", h);
+  svg.selectAll("*").remove();
+  svg.append("defs").append("clipPath").attr("id", "bt-clip").append("rect").attr("x", G.frame[0]).attr("y", G.frame[1]).attr("width", G.frame[2]).attr("height", G.frame[3]);
+  const root = svg, inner = svg.append("g").attr("clip-path", "url(#bt-clip)");
+  $("bt-tlabel").textContent = fmtT(t);
+  const A = field(1, t), Z = field(0, t), line = d3.line();
+  const toGeo = (fld) => ([x, y]) => P([fld.lon0 + (x - 0.5), fld.lat0 + (y - 0.5)]);
+  const col = (v) => d3.interpolateRdBu(0.5 - v / 900);
+  const fill = (vals, thr, sign) => {
+    for (const b of d3.contours().size([A.nx, A.ny]).thresholds(thr)(vals)) {
+      const pr = toGeo(A);
+      inner.append("path").attr("fill", col(sign * (b.value + 25))).attr("d", b.coordinates.map((poly) => poly.map((r) => line(r.map(pr)) + "Z").join("")).join(""));
+    }
+  };
+  fill(Array.from(A.v), d3.range(0, 401, 50), 1);
+  fill(Array.from(A.v, (v) => -v), d3.range(50, 401, 50), -1);
+  const edge = ([x, y]) => x <= 0.5 || y <= 0.5 || x >= Z.nx - 0.5 || y >= Z.ny - 0.5;
+  for (const c of d3.contours().size([Z.nx, Z.ny]).thresholds(d3.range(4800, 6000, 80))(Array.from(Z.v))) {
+    let d = "";
+    for (const poly of c.coordinates) for (const r of poly) {
+      let pen = false;
+      for (let i = 0; i < r.length; i++) {
+        if (edge(r[i]) && (i === 0 || edge(r[i - 1]))) { pen = false; continue; }
+        const p = toGeo(Z)(r[i]); d += (pen ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1); pen = true;
+      }
+    }
+    inner.append("path").attr("d", d).attr("fill", "none").attr("stroke", "#000").attr("stroke-width", 0.6);
+  }
+  if (S.land) inner.append("path").attr("d", d3.geoPath(P)(S.land)).attr("fill", "none").attr("stroke", "#666").attr("stroke-width", 0.6);
+  drawTracks(inner, P);
+  axes(root, G);
+  svg.on("click", (e) => {
+    const [x, y] = d3.pointer(e), [fx, fy, fw, fh] = G.frame;
+    if (x < fx || y < fy || x > fx + fw || y > fy + fh) return;
+    const ll = P.invert([x, y]); if (ll) launch(ll[1], ((ll[0] % 360) + 360) % 360);
+  });
+  $("bt-figtitle").textContent = `${S.ev.label}: ${fmtT(t)}, start level sigma ${S.ev.sigma[S.level]}`;
+  $("bt-caption").textContent = `Shading: 500-hPa height minus its average around the latitude circle (red: ridges and blocks, blue: troughs; every 50 m from −400 to 400 m). Contours: 500-hPa height every 80 m. Grey lines: coastlines. Longitude\u2013latitude map, latitude stretched \u00D7${G.k.toFixed(1)} so that shapes are about right near ${G.mid.toFixed(0)}\u00B0N. Click to launch parcels; tracks then show 24 h after (red) and before (blue) the chosen time.`;
+}
+function drawTracks(svg, P) {
+  const r = S.result; if (!r) return;
+  const pt = (q) => P([q[0], q[1]]), line = d3.line();
+  for (const [name, colM, colE] of [["backcast", "#2166ac", "rgba(33,102,172,0.18)"], ["forecast", "#b2182b", "rgba(178,24,43,0.18)"]]) {
+    const d = r.directions[name]; if (!d || d.error) continue;
+    const nm = d.members[0].length, nq = d.members[0][0].length;
+    for (let m = 0; m < nm; m++) for (let q = 0; q < nq; q++)
+      svg.append("path").attr("d", line(d.members.map((hh) => pt(hh[m][q])))).attr("fill", "none").attr("stroke", colE).attr("stroke-width", 0.7);
+    for (let q = 0; q < nq; q++) {
+      svg.append("path").attr("d", line(d.mean.map((hh) => pt(hh[q])))).attr("fill", "none").attr("stroke", colM).attr("stroke-width", 1.6);
+      svg.append("path").attr("d", line(d.truth.map((hh) => pt(hh[q])))).attr("fill", "none").attr("stroke", "#000").attr("stroke-width", 1.1).attr("stroke-dasharray", "4,2");
+    }
+  }
+  const p0 = P([r.lon, r.lat]);
+  svg.append("path").attr("d", d3.symbol(d3.symbolStar, 120)()).attr("transform", `translate(${p0[0]},${p0[1]})`).attr("fill", "#ffd400").attr("stroke", "#000");
+}
+function drawPressure() {
+  const w = W(), h = 220, m = { l: 48, r: 12, t: 10, b: 30 };
+  const svg = d3.select("#bt-p").attr("viewBox", `0 0 ${w} ${h}`).attr("height", h); svg.selectAll("*").remove();
+  const r = S.result, all = [];
+  if (r) for (const n of ["forecast", "backcast"]) { const d = r.directions[n]; if (d && !d.error) { d.mean.forEach((hh) => hh.forEach((q) => all.push(q[2]))); d.truth.forEach((hh) => hh.forEach((q) => all.push(q[2]))); } }
+  if (!all.length) { svg.append("text").attr("x", m.l).attr("y", h / 2).attr("font-size", 11).text("Launch parcels to see their pressure."); return; }
+  const x = d3.scaleLinear([-24, 24], [m.l, w - m.r]), y = d3.scaleLinear([d3.max(all) + 10, d3.min(all) - 10], [h - m.b, m.t]);
+  svg.append("g").attr("transform", `translate(0,${h - m.b})`).call(d3.axisBottom(x).tickValues(d3.range(-24, 25, 6)));
+  svg.append("g").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(5));
+  svg.append("text").attr("x", w / 2).attr("y", h - 2).attr("text-anchor", "middle").attr("font-size", 10).text("hours from the chosen time");
+  svg.append("text").attr("transform", `translate(12,${h / 2}) rotate(-90)`).attr("text-anchor", "middle").attr("font-size", 10).text("pressure (hPa)");
+  const line = d3.line().x((p) => x(p[0])).y((p) => y(p[1]));
+  for (const [n, col] of [["forecast", "#b2182b"], ["backcast", "#2166ac"]]) {
+    const d = r.directions[n]; if (!d || d.error) continue;
+    for (let q = 0; q < d.mean[0].length; q++) {
+      svg.append("path").attr("d", line(d.mean.map((hh, k) => [d.hours[k], hh[q][2]]))).attr("fill", "none").attr("stroke", col).attr("stroke-width", 1.1);
+      svg.append("path").attr("d", line(d.truth.map((hh, k) => [d.truth_hours[k], hh[q][2]]))).attr("fill", "none").attr("stroke", "#000").attr("stroke-width", 0.9).attr("stroke-dasharray", "4,2");
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ start */
+async function init() {
+  try { await caches.delete("blocking-tracks-model"); } catch (e) { /* no Cache Storage */ }
+  window.addEventListener("pagehide", leavePage);
+  window.addEventListener("pageshow", (e) => { if (e.persisted) location.reload(); });   /* back button: the dropped data is fetched again */
+  const es = $("bt-event"), ls = $("bt-level");
+  for (const e of EVENTS) es.add(new Option(e.label, e.id));
+  EVENTS[0].sigma.forEach((s, k) => ls.add(new Option(`sigma ${s} (about ${Math.round(s * 1000)} hPa)`, k)));
+  ls.value = S.level;
+  es.onchange = () => { S.ti = 0; loadEvent(es.value); };
+  ls.onchange = () => { S.level = +ls.value; S.result = null; draw(); drawPressure(); $("bt-result").textContent = ""; };
+  $("bt-t").oninput = (e) => { S.ti = +e.target.value; S.result = null; draw(); drawPressure(); $("bt-result").textContent = ""; };
+  window.addEventListener("resize", () => { draw(); drawPressure(); });
+  for (const u of LAND_URLS) { try { const topo = await (await fetch(u, NO_STORE)).json(); S.land = topojson.mesh(topo, topo.objects.land); break; } catch (e) { S.land = null; } }
+  await loadEvent(EVENTS[0].id);
+}
+init().catch((e) => { $("bt-runinfo").textContent = "could not load the data"; $("bt-status").textContent = String(e); });

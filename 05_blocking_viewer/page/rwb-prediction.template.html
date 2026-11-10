@@ -1,0 +1,86 @@
+---
+layout: archive
+title: "Air-Parcel Tracks in Blocking Events"
+permalink: /blocking-plots/rwb-prediction/
+author_profile: false
+---
+
+{% include base_path %}
+<link rel="stylesheet" href="{{ base_path }}/assets/css/journal.css?v={{ site.time | date: "%s" }}">
+<style>.page__title { font-family: "STIX Two Text", "Times New Roman", Times, serif; font-weight: 700; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+
+<style>
+  .bt .bt-map { width: 100%; background: #fff; display: block; cursor: crosshair; }
+  .bt .bt-p { width: 100%; display: block; }
+  .bt .bt-legend { font-family: Helvetica, Arial, sans-serif; font-size: 8.5pt; margin: 4px 0; }
+  .bt .bt-legend span { display: inline-block; margin-right: 14px; white-space: nowrap; }
+  .bt .bt-legend i { display: inline-block; width: 22px; height: 0; border-top: 2px solid #000; vertical-align: middle; margin-right: 4px; }
+  .bt .bt-legend i.fm { border-color: #b2182b; } .bt .bt-legend i.fe { border-color: rgba(178,24,43,0.35); border-top-width: 1px; }
+  .bt .bt-legend i.bm { border-color: #2166ac; } .bt .bt-legend i.be { border-color: rgba(33,102,172,0.35); border-top-width: 1px; }
+  .bt .bt-legend i.tr { border-color: #000; border-top-style: dashed; }
+  .bt .bt-time { font-family: Helvetica, Arial, sans-serif; font-size: 9pt; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  .bt .bt-time input[type=range] { flex: 1 1 260px; }
+  .bt .bt-time .bt-tlabel { min-width: 170px; font-variant-numeric: tabular-nums; }
+  .bt .bt-result { font-family: Helvetica, Arial, sans-serif; font-size: 9pt; margin: 6px 0; }
+</style>
+
+<div class="jn bt" id="bt-app">
+  <p class="bp-backlink jn-small"><a href="{{ base_path }}/blocking-plots/">&larr; Blocking Plots</a></p>
+  <div class="jn-runhead"><span>Interactive &middot; ERA5 blocking events</span><span id="bt-runinfo">loading&hellip;</span></div>
+
+  <p class="jn-abstract"><b>Purpose.</b> A <i>block</i> is a large high-pressure system in the middle and upper troposphere that stays in place for days to weeks and diverts the usual west-to-east procession of weather around itself. This page follows the air that moves through five blocks at about 380, 285 and 200&nbsp;hPa (roughly 7&ndash;12&nbsp;km above sea level). Choose an event, a time in its life cycle and a start level, then click on the map: a neural network continues the paths of the @@N_LAUNCH@@ air parcels nearest that point for 24&nbsp;h into the future (<i>forecast</i>) and 24&nbsp;h into the past (<i>backcast</i>), as a set of possible paths, and draws their true paths for comparison.</p>
+  <p class="jn-abstract"><b>Terms.</b> An <i>air parcel</i> is a small volume of air followed as it moves with the wind, in three dimensions; its <i>track</i> is the sequence of its positions. The <i>true tracks</i> are computed by the trajectory model LAGRANTO from the hourly winds of ERA5, the European reanalysis (a reconstruction of past weather from observations and a weather model). The network is a <i>conditional Kinematic Interpolant</i> (Jiang, Marzouk, Bose &amp; Pooladian, 2026): it is never given a wind field; instead it predicts how a parcel accelerates from how 192 other parcels of the same group moved during the 48&nbsp;h before (for a forecast) or after (for a backcast) the chosen time. Adding small random kicks to the predicted motion gives an <i>ensemble</i> of @@MEMBERS@@ possible tracks per parcel; their scatter, the <i>spread</i>, shows how uncertain the model is. Pressure is given in hectopascals (hPa); lower pressure means higher altitude.</p>
+
+  <div class="jn-controls">
+    <div class="jn-ctl"><label for="bt-event">Event</label><select id="bt-event"></select></div>
+    <div class="jn-ctl"><label for="bt-level">Start level</label><select id="bt-level"></select></div>
+  </div>
+  <div class="bt-time">
+    <span>Time (UTC)</span><input type="range" id="bt-t" min="0" max="0" value="0" step="1" aria-label="launch time">
+    <span class="bt-tlabel" id="bt-tlabel">&nbsp;</span>
+  </div>
+  <div class="jn-status" id="bt-status">Click on the map to launch parcels at that point.</div>
+
+  <figure class="jn-fig">
+    <div class="jn-fig-title" id="bt-figtitle"></div>
+    <svg class="bt-map" id="bt-map"></svg>
+    <div class="bt-legend">
+      <span><i class="tr"></i>true tracks (ERA5, every 3 h)</span>
+      <span><i class="fm"></i>forecast, ensemble mean</span><span><i class="fe"></i>forecast members</span>
+      <span><i class="bm"></i>backcast, ensemble mean</span><span><i class="be"></i>backcast members</span>
+    </div>
+    <figcaption id="bt-caption"></figcaption>
+  </figure>
+
+  <figure class="jn-fig">
+    <div class="jn-fig-title">Pressure of the launched parcels against time</div>
+    <svg class="bt-p" id="bt-p"></svg>
+    <figcaption>Pressure along the tracks of the @@N_LAUNCH@@ parcels from 24&nbsp;h before to 24&nbsp;h after the chosen time (hour 0): true tracks (black, dashed), ensemble means of the forecast (red, right) and of the backcast (blue, left). Rising air moves to lower pressure (up in the panel).</figcaption>
+  </figure>
+  <div class="bt-result" id="bt-result"></div>
+
+  <h3>How it works</h3>
+  <p><b>Parcels for every place and time.</b> The network needs observed tracks around the point, so each event comes with a dense set of true tracks: groups (<i>patches</i>) of @@N_PER@@ parcels filling a disk of 300&nbsp;km radius, released every 12&nbsp;h from four days before the event to its end, on centres about 1000&nbsp;km apart over the event region and up to 40&deg; of longitude upstream (west), at three start levels: @@SIGMA_TEXT@@ of the surface pressure (about 380, 285 and 200&nbsp;hPa where the surface pressure is 1000&nbsp;hPa). Each patch is followed for 156&nbsp;h. In total @@N_PATCHES@@ patches, @@N_PARCELS@@ parcels.</p>
+  <p><b>A launch.</b> For the forecast, among the patches of the chosen level released 48&ndash;132&nbsp;h before the chosen time, the one with the most parcels within 300&nbsp;km of the point is used; its @@N_LAUNCH@@ parcels nearest the point are launched, and 192 of its other parcels, observed every 3&nbsp;h over the 48&nbsp;h before the chosen time, are what the network sees. The backcast does the same with a patch released 24&ndash;108&nbsp;h before the chosen time, observed over the 48&nbsp;h after it, so the two directions may use different parcels near the point. The network then integrates position and velocity in steps of 10 minutes.</p>
+  <p><b>Accuracy.</b> The network was trained on @@N_TRAIN@@ true tracks from ERA5 releases every 5 days of 2015&ndash;2017 at 20 levels from the surface to about 100&nbsp;hPa. In 2021, a year it never saw, its deterministic 24-h forecast misses the true position by a median of @@FC24@@&nbsp;km and its backcast by @@BC24@@&nbsp;km, against @@FC24S@@ and @@BC24S@@&nbsp;km for parcels moving straight on at their starting velocity. The size of the random kicks was chosen on the 2015&ndash;2017 validation parcels so that the 24-h spread matches the error; there the mean of @@CAL_MEMBERS@@-member ensembles misses by a median of @@ENS24@@&nbsp;km at 24&nbsp;h, against @@DET24@@&nbsp;km for the forecast without kicks. Blocks and their surroundings are not the average case, so errors near a block may differ.</p>
+  <p><b>Speed.</b> The network runs in your browser (onnxruntime-web, on one processor core), stored with 8-bit weights, which changes its 24-h errors by less than their scatter from one set of random kicks to another. The first launch of a visit downloads it (@@MODEL_MB@@&nbsp;MB); nothing is stored on your computer, and it is discarded when you leave the page. A launch then takes @@LAUNCH_S@@ on a typical computer. The tracks appear hour by hour while it runs.</p>
+
+  <h3>Events</h3>
+  <table class="jn-table">
+    <thead><tr><th>Event</th><th>Life cycle shown (UTC)</th><th>How the dates and region were chosen</th></tr></thead>
+    <tbody>@@EVENT_ROWS@@</tbody>
+  </table>
+  <p class="jn-tabcap">Map shading: the 500-hPa height minus its average around the latitude circle at the same time (positive: ridges and blocks); contours: the 500-hPa height every 80&nbsp;m. Both from ERA5 every 6&nbsp;h at 1&deg;.</p>
+
+  <h3>Data, code and references</h3>
+  <ul class="jn-small">
+    <li>ERA5 hourly winds on 37 pressure levels at 0.25&deg; (Copernicus Climate Change Service), read from Google&rsquo;s public Analysis-Ready, Cloud-Optimized ERA5 store.</li>
+    <li>LAGRANTO trajectory model: Sprenger, M. and Wernli, H., The LAGRANTO Lagrangian analysis tool &ndash; version 2.0, <i>Geosci. Model Dev.</i>, 8, 2569&ndash;2586, 2015, <a href="https://doi.org/10.5194/gmd-8-2569-2015">doi:10.5194/gmd-8-2569-2015</a>.</li>
+    <li>Kinematic Interpolants: Jiang, Marzouk, Bose &amp; Pooladian, <i>Learning smooth dynamics via Kinematic Interpolants</i>, <a href="https://arxiv.org/abs/2610.22519">arXiv:2610.22519</a> (2026).</li>
+    <li>Tracks and maps: <a href="https://huggingface.co/datasets/yanxingjianken/blocking-tracks">Hugging Face dataset</a>; the network: <a href="https://huggingface.co/yanxingjianken/ki-era5-tracks">Hugging Face model</a>; code: <a href="https://github.com/yanxingjianken/ki-lagrangian-tracks">github.com/yanxingjianken/ki-lagrangian-tracks</a>.</li>
+  </ul>
+</div>
+
+@@SCRIPT@@

@@ -1,0 +1,12 @@
+{
+ "russia_2010": {"window": ["2010-07-06T00", "2010-08-18T00"], "lat": [40, 75], "lon": [0, 90],
+                 "source": "ERA5 TempestExtremes catalogue blocks 880 (2010-07-10 22 UTC to 07-20 23 UTC) and 881 (2010-07-22 03 UTC to 08-13 19 UTC)"},
+ "atlantic_2019": {"window": ["2019-07-17T00", "2019-08-09T00"], "lat": [50, 85], "lon": [300, 40],
+                   "source": "ERA5 TempestExtremes catalogue block 1312 (2019-07-21 19 UTC to 08-05 08 UTC)"},
+ "pacific_nw_2021": {"window": ["2021-06-19T00", "2021-07-10T00"], "lat": [35, 75], "lon": [190, 270],
+                     "source": "Wikipedia, 2021 Western North America heat wave: June 25 to July 7, 2021; heat dome over the British Columbia Interior on June 28"},
+ "california_2025": {"window": ["2025-01-01T00", "2025-01-20T00"], "lat": [25, 70], "lon": [190, 280],
+                     "source": "Wikipedia, January 2025 Southern California wildfires: January 7-31, 2025; Santa Ana windstorm January 7-8"},
+ "greenland_2026": {"window": ["2026-01-14T00", "2026-02-02T00"], "lat": [50, 85], "lon": [270, 30],
+                    "source": "Wikipedia, January 23-27, 2026 North American winter storm (formed January 22)"}
+}

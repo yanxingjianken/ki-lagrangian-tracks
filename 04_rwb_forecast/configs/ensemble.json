@@ -1,0 +1,6 @@
+{
+ "eps_rel": 1.5,
+ "members": 16,
+ "chosen_on": "320 validation patches of releases tr000..tr209 (every 11th)",
+ "rule": "24-h spread closest to the rms error of the ensemble mean"
+}

@@ -11,7 +11,9 @@ run on winds of models of increasing realism, with Rossby-wave breaking in mind.
 | --- | --- | --- |
 | [`01_bve/`](01_bve/) | 2-D tracks in 13 stochastically stirred barotropic jets on the sphere (torch-harmonics) | done |
 | [`02_dinosaur/`](02_dinosaur/) | 3-D tracks in 52 baroclinic life cycles of the JAX dynamical core Dinosaur | done |
-| [`03_era5/`](03_era5/) | 3-D tracks in ERA5 (0.25°, 37 pressure levels, both hemispheres; 2015–2017 training, 2021 test) | tracks in production |
+| [`03_era5/`](03_era5/) | 3-D tracks in ERA5 (0.25°, 37 pressure levels, both hemispheres; 2015–2017 training, 2021 test); self-contained notebook `ki_era5.ipynb` | done |
+| [`04_rwb_forecast/`](04_rwb_forecast/) | does the forecast deformation of a patch predict Rossby-wave breaking 12–24 h ahead? (fit 2017, test 2021) | no skill, even with the true tracks |
+| [`05_blocking_viewer/`](05_blocking_viewer/) | track clouds of five blocking events, the network for the browser and the interactive viewer of the Blocking Plots site | live |
 | [`lagranto/`](lagranto/) | LAGRANTO.ecmwf source (ETH public SVN, revision 47, GPLv3) with a gfortran build script and Python I/O | built |
 | `ki/` | upstream KI code (git submodule, github.com/Submobile01/KinematicInterpolant, MIT) | reference |
 
@@ -25,6 +27,8 @@ graph TD
     S --> K["conditional KI: context transformer over the other parcels' observed tracks, DDP training"]
     K --> F["conditional forecasts and backcasts, 6-24 h, unseen patches and unseen flows"]
     K --> V["test movies over vorticity, streamfunction and wind"]
+    K --> R["breaking test on forecast patch shapes (04)"]
+    K --> B["in-browser viewer: launch parcels in blocking events (05)"]
 ```
 
 Environment: micromamba env `kinematic_interpolants` (Python 3.12, torch with CUDA, torch-harmonics 0.6.5); LAGRANTO

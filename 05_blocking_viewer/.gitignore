@@ -1,0 +1,6 @@
+# Winds, tracks, packages, uploads and run logs stay out of git; configs, scripts, the Python reference of a launch, the page and the event maps are versioned.
+data/
+pkg/
+pkg_test/
+hf_model/
+outputs/

@@ -7,6 +7,8 @@
 !/01_bve/
 !/02_dinosaur/
 !/03_era5/
+!/04_rwb_forecast/
+!/05_blocking_viewer/
 !/lagranto/
 !/ki
 
@@ -36,3 +38,7 @@
 *.mod
 **/__pycache__/
 .pytest_cache/
+/04_rwb_forecast/data/
+/04_rwb_forecast/outputs/
+/04_rwb_forecast/**/__pycache__/
+/05_blocking_viewer/**/__pycache__/
